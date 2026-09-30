@@ -60,7 +60,7 @@ burn times out, check wallet history before requesting another burn.
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/bandrivskiy/webrgb/blob/36e2a1df9026ab5f440f71e48e23088a5d620dd9/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/bandrivskiy/webrgb/blob/1eaebebfa594fe7b9133b878237b36ddd8ebd0a8/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.

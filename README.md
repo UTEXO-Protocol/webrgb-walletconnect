@@ -11,10 +11,8 @@ storage, argument validation and user confirmations.
 
 ## Install
 
-This project is not published yet. Install the local checkout in your app:
-
 ```bash
-npm install /path/to/webrgb /path/to/webrgb-walletconnect
+npm install @utexo/webrgb @utexo/webrgb-walletconnect
 ```
 
 Install SignClient or WalletKit separately in the app; they are development
@@ -69,7 +67,7 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/bandrivskiy/webrgb/blob/36e2a1df9026ab5f440f71e48e23088a5d620dd9/SPEC.md).
+[WebRGB](https://github.com/bandrivskiy/webrgb/blob/1eaebebfa594fe7b9133b878237b36ddd8ebd0a8/SPEC.md).
 
 The application supplies `@utexo/webrgb` as a peer dependency, so both packages
 share one contract. Development pins core to a Git commit until its npm release.
