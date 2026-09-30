@@ -89,7 +89,7 @@ jobs:
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance --tag ${{ needs.resolve-version.outputs.dist_tag }}
+        run: npm publish --access public --tag ${{ needs.resolve-version.outputs.dist_tag }}
 
   github-release:
     name: Create GitHub release
