@@ -39,9 +39,9 @@ signatures. Record changes under `Unreleased` in `CHANGELOG.md`.
 
 ## Workflow
 
-1. Branch from `main`.
+1. Branch from `dev`.
 2. Keep the checks above green; CI runs them on Node 20 and 22.
-3. Open a pull request with a short rationale and relevant validation.
+3. Open a pull request against `dev` with a short rationale and relevant validation.
 
 Live relay and mobile checks require application configuration and remain
 separate from the local test suite. Do not commit project credentials or
