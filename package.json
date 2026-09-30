@@ -1,0 +1,64 @@
+{
+  "name": "@utexo/webrgb-walletconnect",
+  "version": "0.1.0",
+  "description": "WalletConnect transport for WebRGB dApps and wallets, using SignClient and WalletKit.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "walletconnect-proof.js",
+    "README.md",
+    "INTEGRATION.md",
+    "SPEC.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "npm run test:types && npm run test:runtime",
+    "test:types": "tsc -p test/tsconfig.json && tsc -p test/nodenext/tsconfig.json",
+    "test:runtime": "node --test test/*.test.js",
+    "test:package": "attw --pack . --profile esm-only && publint",
+    "test:packed": "node test/packed.mjs"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@walletconnect/utils": "^2.25.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@reown/walletkit": "^1.6.0",
+    "@types/node": "^20.19.43",
+    "@walletconnect/sign-client": "^2.25.0",
+    "publint": "^0.3.14",
+    "typescript": "^5.6.0",
+    "@utexo/webrgb": "git+https://github.com/bandrivskiy/webrgb.git#36e2a1df9026ab5f440f71e48e23088a5d620dd9"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "webrgb",
+    "rgb",
+    "walletconnect",
+    "wallet",
+    "bitcoin",
+    "dapp"
+  ],
+  "peerDependencies": {
+    "@utexo/webrgb": "^0.3.0"
+  }
+}
