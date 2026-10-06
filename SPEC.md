@@ -8,7 +8,7 @@ See [INTEGRATION.md](./INTEGRATION.md) for usage.
 
 The `rgb` namespace, profile tag and consignment chunks below are experimental
 UTEXO protocol choices. They are not WalletConnect standards. Both ends must
-implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/eb15f3615c81bde96499bb99eaf66956e6178fe6/SPEC.md).
+implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/c4669a7e99b27e8819568c10e6cafc12ec1376ef/SPEC.md).
 
 ## 1. Session
 
@@ -37,21 +37,9 @@ grants access; each method retains its own consent rules. The wallet's provider 
 RPC errors use JSON-RPC or WalletConnect numeric codes and carry the WebRGB
 code in `error.data` as a string; the dApp restores it as `error.code`.
 
-### Message signing
-
-`provider.signMessage(message)` maps to `rgb_signMessage` with positional
-params `[message]` and result `{ signature }`, as defined by WebRGB. The
-signature uses the LND-compatible zbase32 format; the adapter forwards both
-the message and signature unchanged. It rejects malformed message arguments
-before invoking the wallet provider. No `scheme` or `publicKey` is added.
-
-dApps request this optional method explicitly and check `getInfo().methods`
-before calling it. Session approval does not approve signing. The wallet
-shows the origin, complete message and signing account, then checks
-`context.assertAuthorized()` after confirmation and before signing. Close
-the prompt when `context.requestSignal` is aborted. The WalletConnect account
-identifier is not necessarily the signing public key; signature verification
-and backend authentication remain the dApp's responsibility.
+`signMessage(message)` maps to `rgb_signMessage` with params `[message]` and
+result `{ signature }`. The adapter forwards both unchanged; the wallet
+obtains user approval for each signing request.
 
 ## 2. Consignment transfer
 

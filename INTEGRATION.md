@@ -58,24 +58,17 @@ proof. The receiving service handles Bitcoin confirmations, proof verification a
 any payout. Proof retrieval can be retried using the saved txid. If a
 burn times out, check wallet history before requesting another burn.
 
-For message signing, check the negotiated capability and call the provider:
+To sign a message, include `signMessage` in `optionalMethods` and check support:
 
 ```ts
-if (!supports(await provider.getInfo(), "signMessage") || !provider.signMessage) {
-  throw new Error("This wallet does not support message signing");
+if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
+  const { signature } = await provider.signMessage(message);
 }
-const { signature } = await provider.signMessage(message);
 ```
-
-The wallet asks for approval and returns the LND-compatible zbase32 signature.
-Your backend verifies the original message and binds the recovered key to
-the account being authenticated. A login challenge should contain the domain,
-a one-time nonce and expiry. Signing is separate from connecting and minting;
-see [SPEC.md](./SPEC.md#message-signing) for the wire format.
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/eb15f3615c81bde96499bb99eaf66956e6178fe6/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/c4669a7e99b27e8819568c10e6cafc12ec1376ef/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.
@@ -107,10 +100,9 @@ await wallet.pair(scannedUri); // a WalletConnect URI, not an RGB invoice
 `createRgbProvider` belongs to your app. It returns a provider scoped to
 `context.origin`. Show that origin and the verification status in the
 connection prompt; connection approval does not approve a burn, proof
-sharing or message signing. Advertise `signMessage` only when the provider
-implements WebRGB's format and preserves the exact message bytes.
-After a per-call prompt, call `context.assertAuthorized()` before
-performing the operation. Capture `context.requestSignal` inside each method
+sharing or message signing. After a per-call prompt, call
+`context.assertAuthorized()` before performing the operation. Capture
+`context.requestSignal` inside each method
 and close its prompt on abort; `context.signal` covers session revocation.
 The connection prompt receives its own `signal`. `enable()` should reuse
 the connection approval.

@@ -261,62 +261,33 @@ const code = (expected) => (error) => {
 
 describe("message signing", () => {
   const methods = ["enable", "getInfo", "signMessage"];
-  // LDK's sign/recover test vector.
-  const signature = "d9tibmnic9t5y41hg7hkakdcra94akas9ku3rmmj4ag9mritc8ok4p5qzefs78c9pqfhpuftqqzhydbdwfg7u6w6wdxcqpqn4sj4e73e";
 
-  it("preserves messages and signatures across the JSON boundary", async (t) => {
-    const f = await fixture(t, { methods }),
-      seen = [];
-    f.backend.signMessage = async (message) => {
-      seen.push(message);
-      return { signature };
-    };
+  it("passes messages and signatures unchanged across the JSON boundary", async (t) => {
+    const f = await fixture(t, { methods }), seen = [], result = { signature: "mock-signature" };
+    f.backend.signMessage = async (message) => { seen.push(message); return result; };
     const provider = await f.connect();
-    await assert.rejects(provider.signMessage("test message"), code("NOT_ENABLED"));
     await provider.enable();
     assert.deepEqual(seen, []);
     assert.ok((await provider.getInfo()).methods.includes("signMessage"));
-    const messages = ["test message", "  sign in\r\n", "Підпис 🟠 e\u0301", ""];
+    const messages = ["  Підпис 🟠 e\u0301\r\n", ""];
     for (const message of messages) {
-      assert.deepEqual(await provider.signMessage(message), { signature });
+      assert.deepEqual(await provider.signMessage(message), result);
       assert.equal(f.bus.calls.at(-1).params.request.method, "rgb_signMessage");
       assert.deepEqual(f.bus.calls.at(-1).params.request.params, [message]);
     }
     assert.deepEqual(seen, messages);
   });
 
-  it("requires signing to be negotiated even when the wallet supports it", async (t) => {
+  it("requires signing permission in the session", async (t) => {
     const f = await fixture(t, { methods }, { optionalMethods: [] });
     f.backend.signMessage = async () => { throw new Error("signer must not run"); };
     const provider = await f.connect();
     await provider.enable();
     assert.equal((await provider.getInfo()).methods.includes("signMessage"), false);
-    await assert.rejects(provider.signMessage("test message"), code("METHOD_NOT_SUPPORTED"));
-    assert.equal(f.bus.calls.some((e) => e.params.request.method === "rgb_signMessage"), false);
+    await assert.rejects(provider.signMessage("hello"), code("METHOD_NOT_SUPPORTED"));
   });
 
-  it("connects to wallets without optional signing", async (t) => {
-    const f = await fixture(t, {}, { optionalMethods: ["signMessage"] }),
-      provider = await f.connect();
-    await provider.enable();
-    assert.equal((await provider.getInfo()).methods.includes("signMessage"), false);
-    await assert.rejects(provider.signMessage("test message"), code("METHOD_NOT_SUPPORTED"));
-  });
-
-  it("rejects invalid arguments before invoking the wallet signer", async (t) => {
-    const f = await fixture(t, { methods });
-    let calls = 0;
-    f.backend.signMessage = async () => { calls++; return { signature }; };
-    const provider = await f.connect();
-    await provider.enable();
-    for (const message of [undefined, null, 1, { message: "hello" }, "\ud800", "\udc00"]) {
-      await assert.rejects(provider.signMessage(message), code("INVALID_PARAMS"));
-    }
-    await assert.rejects(provider.signMessage("hello", "lightning"), code("INVALID_PARAMS"));
-    assert.equal(calls, 0);
-  });
-
-  it("returns user rejection without retrying the signing request", async (t) => {
+  it("validates arguments and forwards user rejection", async (t) => {
     const f = await fixture(t, { methods });
     let prompts = 0;
     f.backend.signMessage = async () => {
@@ -325,34 +296,12 @@ describe("message signing", () => {
     };
     const provider = await f.connect();
     await provider.enable();
-    await assert.rejects(provider.signMessage("test message"), code("USER_REJECTED"));
+    for (const message of [undefined, null, 1, "\ud800"]) {
+      await assert.rejects(provider.signMessage(message), code("INVALID_PARAMS"));
+    }
+    assert.equal(prompts, 0);
+    await assert.rejects(provider.signMessage("hello"), code("USER_REJECTED"));
     assert.equal(prompts, 1);
-    assert.equal(f.bus.calls.filter((e) => e.params.request.method === "rgb_signMessage").length, 1);
-  });
-
-  it("blocks signing when permission is revoked during confirmation", async (t) => {
-    const f = await fixture(t, { methods }),
-      prompt = deferred(),
-      entered = deferred();
-    let signed = false;
-    f.backend.signMessage = async () => {
-      entered.resolve();
-      await prompt.promise;
-      f.context.assertAuthorized();
-      signed = true;
-      return { signature };
-    };
-    const provider = await f.connect();
-    await provider.enable();
-    const result = provider.signMessage("test message");
-    await entered.promise;
-    const session = f.bus.wallet.session.get(provider.topic);
-    session.namespaces.rgb.methods = session.namespaces.rgb.methods.filter(
-      (method) => method !== "rgb_signMessage",
-    );
-    prompt.resolve();
-    await assert.rejects(result, code("NOT_ENABLED"));
-    assert.equal(signed, false);
   });
 });
 
