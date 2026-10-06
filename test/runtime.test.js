@@ -261,7 +261,7 @@ const code = (expected) => (error) => {
 
 describe("message signing", () => {
   const methods = ["enable", "getInfo", "signMessage"];
-  // LDK's interoperability vector from the core specification.
+  // LDK's sign/recover test vector.
   const signature = "d9tibmnic9t5y41hg7hkakdcra94akas9ku3rmmj4ag9mritc8ok4p5qzefs78c9pqfhpuftqqzhydbdwfg7u6w6wdxcqpqn4sj4e73e";
 
   it("preserves messages and signatures across the JSON boundary", async (t) => {

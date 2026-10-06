@@ -75,7 +75,7 @@ see [SPEC.md](./SPEC.md#message-signing) for the wire format.
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/f30b49f59f230f386b58bd511d5467f78ad071f7/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/eb15f3615c81bde96499bb99eaf66956e6178fe6/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.

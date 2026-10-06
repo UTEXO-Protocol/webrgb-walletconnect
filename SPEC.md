@@ -8,7 +8,7 @@ See [INTEGRATION.md](./INTEGRATION.md) for usage.
 
 The `rgb` namespace, profile tag and consignment chunks below are experimental
 UTEXO protocol choices. They are not WalletConnect standards. Both ends must
-implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/f30b49f59f230f386b58bd511d5467f78ad071f7/SPEC.md).
+implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/eb15f3615c81bde96499bb99eaf66956e6178fe6/SPEC.md).
 
 ## 1. Session
 
