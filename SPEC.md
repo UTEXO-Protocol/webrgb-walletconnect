@@ -8,7 +8,7 @@ See [INTEGRATION.md](./INTEGRATION.md) for usage.
 
 The `rgb` namespace, profile tag and consignment chunks below are experimental
 UTEXO protocol choices. They are not WalletConnect standards. Both ends must
-implement this binding; a wallet can use any backend for [WebRGB](https://github.com/bandrivskiy/webrgb/blob/1eaebebfa594fe7b9133b878237b36ddd8ebd0a8/SPEC.md).
+implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/c4669a7e99b27e8819568c10e6cafc12ec1376ef/SPEC.md).
 
 ## 1. Session
 
@@ -36,6 +36,10 @@ unknown origin is shown as unverified for the user to decide. Session approval
 grants access; each method retains its own consent rules. The wallet's provider must validate arguments and return WebRGB errors.
 RPC errors use JSON-RPC or WalletConnect numeric codes and carry the WebRGB
 code in `error.data` as a string; the dApp restores it as `error.code`.
+
+`signMessage(message)` maps to `rgb_signMessage` with params `[message]` and
+result `{ signature }`. The adapter forwards both unchanged; the wallet
+obtains user approval for each signing request.
 
 ## 2. Consignment transfer
 

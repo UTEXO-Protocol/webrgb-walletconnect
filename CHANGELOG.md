@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Support for the optional `signMessage` method.
 - WebRGB WalletConnect adapters for dApps using SignClient and wallets using
   WalletKit, with app-owned SDK initialization and storage.
 - Session permissions, expiry signals, events and bounded consignment transfer.

@@ -259,6 +259,52 @@ const code = (expected) => (error) => {
   return true;
 };
 
+describe("message signing", () => {
+  const methods = ["enable", "getInfo", "signMessage"];
+
+  it("passes messages and signatures unchanged across the JSON boundary", async (t) => {
+    const f = await fixture(t, { methods }), seen = [], result = { signature: "mock-signature" };
+    f.backend.signMessage = async (message) => { seen.push(message); return result; };
+    const provider = await f.connect();
+    await provider.enable();
+    assert.deepEqual(seen, []);
+    assert.ok((await provider.getInfo()).methods.includes("signMessage"));
+    const messages = ["  Test message e\u0301\r\n", ""];
+    for (const message of messages) {
+      assert.deepEqual(await provider.signMessage(message), result);
+      assert.equal(f.bus.calls.at(-1).params.request.method, "rgb_signMessage");
+      assert.deepEqual(f.bus.calls.at(-1).params.request.params, [message]);
+    }
+    assert.deepEqual(seen, messages);
+  });
+
+  it("requires signing permission in the session", async (t) => {
+    const f = await fixture(t, { methods }, { optionalMethods: [] });
+    f.backend.signMessage = async () => { throw new Error("signer must not run"); };
+    const provider = await f.connect();
+    await provider.enable();
+    assert.equal((await provider.getInfo()).methods.includes("signMessage"), false);
+    await assert.rejects(provider.signMessage("hello"), code("METHOD_NOT_SUPPORTED"));
+  });
+
+  it("validates arguments and forwards user rejection", async (t) => {
+    const f = await fixture(t, { methods });
+    let prompts = 0;
+    f.backend.signMessage = async () => {
+      prompts++;
+      throw Object.assign(new Error("Signing declined"), { code: "USER_REJECTED" });
+    };
+    const provider = await f.connect();
+    await provider.enable();
+    for (const message of [undefined, null, 1, "\ud800"]) {
+      await assert.rejects(provider.signMessage(message), code("INVALID_PARAMS"));
+    }
+    assert.equal(prompts, 0);
+    await assert.rejects(provider.signMessage("hello"), code("USER_REJECTED"));
+    assert.equal(prompts, 1);
+  });
+});
+
 describe("WalletConnect transport", () => {
   it("dApp connects, enables and receives an invoice through the wallet", async (t) => {
     const f = await fixture(t),

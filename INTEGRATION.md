@@ -17,7 +17,7 @@ const connection = await connectWalletConnect({
   client,
   network: "regtest",
   methods: ["blindReceive"],
-  optionalMethods: ["burnAsset", "getConsignment", "getTransferStatus"],
+  optionalMethods: ["burnAsset", "getConsignment", "getTransferStatus", "signMessage"],
 });
 if (connection.uri) showQr(connection.uri);
 const provider = await connection.approval();
@@ -58,9 +58,17 @@ proof. The receiving service handles Bitcoin confirmations, proof verification a
 any payout. Proof retrieval can be retried using the saved txid. If a
 burn times out, check wallet history before requesting another burn.
 
+To sign a message, include `signMessage` in `optionalMethods` and check support:
+
+```ts
+if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
+  const { signature } = await provider.signMessage(message);
+}
+```
+
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/bandrivskiy/webrgb/blob/1eaebebfa594fe7b9133b878237b36ddd8ebd0a8/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/c4669a7e99b27e8819568c10e6cafc12ec1376ef/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.
@@ -82,7 +90,7 @@ const wallet = createWalletConnectWallet({
   client: walletKit,
   network: "regtest",
   account: "public-wallet-id", // stable public identifier, never a secret
-  methods: ["enable", "getInfo", "blindReceive", "burnAsset", "getConsignment"],
+  methods: ["enable", "getInfo", "blindReceive", "burnAsset", "getConsignment", "signMessage"],
   approveSession: showConnectionPrompt, // your UI returns Promise<boolean>
   getProvider: (context) => createRgbProvider(context),
 });
@@ -91,9 +99,10 @@ await wallet.pair(scannedUri); // a WalletConnect URI, not an RGB invoice
 
 `createRgbProvider` belongs to your app. It returns a provider scoped to
 `context.origin`. Show that origin and the verification status in the
-connection prompt; connection approval does not approve a burn or proof
-sharing. After a per-call prompt, call `context.assertAuthorized()` before
-performing the operation. Capture `context.requestSignal` inside each method
+connection prompt; connection approval does not approve a burn, proof
+sharing or message signing. After a per-call prompt, call
+`context.assertAuthorized()` before performing the operation. Capture
+`context.requestSignal` inside each method
 and close its prompt on abort; `context.signal` covers session revocation.
 The connection prompt receives its own `signal`. `enable()` should reuse
 the connection approval.

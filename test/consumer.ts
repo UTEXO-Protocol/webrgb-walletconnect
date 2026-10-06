@@ -1,5 +1,5 @@
 // Compile-only consumer: check the public exports with Bundler resolution.
-import type { RgbBurnAssetArgs, RgbGetConsignmentResult, RgbProvider } from "@utexo/webrgb";
+import type { RgbBurnAssetArgs, RgbGetConsignmentResult, RgbProvider, RgbSignMessageResult } from "@utexo/webrgb";
 import {
   connectWalletConnect,
   createWalletConnectProvider,
@@ -20,17 +20,22 @@ async function useWalletConnect(
     client,
     network: "regtest",
     methods: ["blindReceive"],
+    optionalMethods: ["signMessage"],
   });
   const remote: WalletConnectProvider = await connection.approval();
   await remote.enable();
   await remote.blindReceive();
+  if ((await remote.getInfo()).methods.includes("signMessage") && remote.signMessage) {
+    const signed: RgbSignMessageResult = await remote.signMessage("  test message\n");
+    signed.signature.toUpperCase();
+  }
   remote.dispose();
   createWalletConnectProvider({ client, network: "regtest", topic: "stored-topic" }).dispose();
   const host = createWalletConnectWallet({
     client: walletKit,
     network: "regtest",
     account: "public-wallet-id",
-    methods: ["enable", "getInfo"],
+    methods: ["enable", "getInfo", "signMessage"],
     approveSession: async ({ verification }) => verification === "VALID",
     getProvider: ({ assertAuthorized, signal }) => {
       assertAuthorized();

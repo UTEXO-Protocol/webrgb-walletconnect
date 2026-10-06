@@ -1,6 +1,6 @@
 {
   "name": "@utexo/webrgb-walletconnect",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WalletConnect transport for WebRGB dApps and wallets, using SignClient and WalletKit.",
   "license": "MIT",
   "type": "module",
@@ -42,7 +42,7 @@
     "@walletconnect/sign-client": "^2.25.0",
     "publint": "^0.3.14",
     "typescript": "^5.6.0",
-    "@utexo/webrgb": "^0.1.0"
+    "@utexo/webrgb": "https://codeload.github.com/UTEXO-Protocol/webrgb/tar.gz/efae34d9600eb93a097174b46f8463fa79966b4b"
   },
   "engines": {
     "node": ">=20"
@@ -59,6 +59,6 @@
     "dapp"
   ],
   "peerDependencies": {
-    "@utexo/webrgb": "^0.1.0"
+    "@utexo/webrgb": "^0.1.1"
   }
 }
