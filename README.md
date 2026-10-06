@@ -2,7 +2,7 @@
 
 WalletConnect transport for WebRGB dApps and wallets. The dApp receives a
 `RgbProvider`; the wallet serves it using any RGB backend. Supports invoice
-requests, optional BFA burns and consented consignment sharing.
+requests, optional message signing, BFA burns and consented consignment sharing.
 
 Applications supply an initialized SignClient (dApp) or WalletKit (wallet).
 This package handles WebRGB RPC mapping, session permissions, expiry, events
@@ -31,7 +31,7 @@ const connection = await connectWalletConnect({
   client,
   network: "regtest",
   methods: ["blindReceive"],
-  optionalMethods: ["burnAsset", "getConsignment", "getTransferStatus"],
+  optionalMethods: ["burnAsset", "getConsignment", "getTransferStatus", "signMessage"],
 });
 if (connection.uri) showQr(connection.uri);
 const provider = await connection.approval();
@@ -51,7 +51,7 @@ const wallet = createWalletConnectWallet({
   client: walletKit, // your initialized WalletKit
   network: "regtest",
   account: "public-wallet-id",
-  methods: ["enable", "getInfo", "blindReceive", "burnAsset", "getConsignment"],
+  methods: ["enable", "getInfo", "blindReceive", "burnAsset", "getConsignment", "signMessage"],
   approveSession: showConnectionPrompt, // your UI: Promise<boolean>
   getProvider: createRgbProvider, // your origin-scoped WebRGB implementation
 });
@@ -67,9 +67,9 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/bandrivskiy/webrgb/blob/1eaebebfa594fe7b9133b878237b36ddd8ebd0a8/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/f30b49f59f230f386b58bd511d5467f78ad071f7/SPEC.md).
 
-The application supplies `@utexo/webrgb` as a peer dependency, so both packages
+The application supplies `@utexo/webrgb` 0.2.x as a peer dependency, so both packages
 share one contract. Development pins core to a Git commit until its npm release.
 For local integration, install the core and adapter tarballs together.
 

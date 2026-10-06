@@ -21,6 +21,7 @@ export const RGB_WALLETCONNECT_METHODS = Object.freeze([
   "enable",
   "getInfo",
   "getAddress",
+  "signMessage",
   "blindReceive",
   "issueAsset",
   "listAssets",
@@ -681,6 +682,11 @@ export function createWalletConnectWallet(options) {
     const max = zero.includes(method) ? 0 : method === "getTransferStatus" ? 2 : 1;
     if (args.length < min || args.length > max)
       throw fail("Invalid argument count", "INVALID_PARAMS");
+    if (
+      method === "signMessage" &&
+      (typeof args[0] !== "string" || /[\uD800-\uDFFF]/u.test(args[0]))
+    )
+      throw fail("message must be a well-formed Unicode string", "INVALID_PARAMS");
     const record = await recordFor(topic);
     const expiry = Math.min(session.expiry, request.expiryTimestamp ?? session.expiry);
     const pending = activeRequests.get(`${topic}:${event.id}`);

@@ -49,6 +49,7 @@ try {
     }
     const core = await import("@utexo/webrgb");
     assert.ok(core.RGB_ERROR_CODES.includes("NOT_ENABLED"));
+    assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("signMessage"));
   `,
     ],
     { cwd: dir, stdio: "inherit" },
