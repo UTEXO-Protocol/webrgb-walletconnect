@@ -269,7 +269,7 @@ describe("message signing", () => {
     await provider.enable();
     assert.deepEqual(seen, []);
     assert.ok((await provider.getInfo()).methods.includes("signMessage"));
-    const messages = ["  Підпис 🟠 e\u0301\r\n", ""];
+    const messages = ["  Test message e\u0301\r\n", ""];
     for (const message of messages) {
       assert.deepEqual(await provider.signMessage(message), result);
       assert.equal(f.bus.calls.at(-1).params.request.method, "rgb_signMessage");

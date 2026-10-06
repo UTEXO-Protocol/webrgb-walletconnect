@@ -42,7 +42,7 @@
     "@walletconnect/sign-client": "^2.25.0",
     "publint": "^0.3.14",
     "typescript": "^5.6.0",
-    "@utexo/webrgb": "https://codeload.github.com/UTEXO-Protocol/webrgb/tar.gz/c4669a7e99b27e8819568c10e6cafc12ec1376ef"
+    "@utexo/webrgb": "https://codeload.github.com/UTEXO-Protocol/webrgb/tar.gz/efae34d9600eb93a097174b46f8463fa79966b4b"
   },
   "engines": {
     "node": ">=20"
