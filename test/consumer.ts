@@ -19,12 +19,15 @@ async function useWalletConnect(
   const connection = await connectWalletConnect({
     client,
     network: "regtest",
-    methods: ["blindReceive"],
+    methods: ["blindReceive", "witnessReceive"],
     optionalMethods: ["signMessage"],
   });
   const remote: WalletConnectProvider = await connection.approval();
   await remote.enable();
   await remote.blindReceive();
+  const { invoice } = await remote.witnessReceive({ assetId: "rgb:a", amount: 5 });
+  invoice.toUpperCase();
+  await remote.witnessReceive();
   if ((await remote.getInfo()).methods.includes("signMessage") && remote.signMessage) {
     const signed: RgbSignMessageResult = await remote.signMessage("  test message\n");
     signed.signature.toUpperCase();

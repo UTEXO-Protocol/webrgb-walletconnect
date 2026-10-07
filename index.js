@@ -23,6 +23,7 @@ export const RGB_WALLETCONNECT_METHODS = Object.freeze([
   "getAddress",
   "signMessage",
   "blindReceive",
+  "witnessReceive",
   "issueAsset",
   "listAssets",
   "getAssetBalance",
@@ -677,8 +678,8 @@ export function createWalletConnectWallet(options) {
     const args = request.params;
     if (!Array.isArray(args)) throw fail("RPC params must be a positional array", "INVALID_PARAMS");
     const zero = ["enable", "getInfo", "getAddress", "listAssets"];
-    const optional = ["blindReceive", "listTransfers"];
-    const min = zero.includes(method) || optional.includes(method) ? 0 : 1;
+    const optionalArgs = ["blindReceive", "witnessReceive", "listTransfers"];
+    const min = zero.includes(method) || optionalArgs.includes(method) ? 0 : 1;
     const max = zero.includes(method) ? 0 : method === "getTransferStatus" ? 2 : 1;
     if (args.length < min || args.length > max)
       throw fail("Invalid argument count", "INVALID_PARAMS");
@@ -846,6 +847,7 @@ export function createWalletConnectWallet(options) {
     requests.set(key, { fingerprint, expiry, promise, controller });
     const sensitive = [
       "rgb_blindReceive",
+      "rgb_witnessReceive",
       "rgb_burnAsset",
       "rgb_sendAsset",
       "rgb_issueAsset",

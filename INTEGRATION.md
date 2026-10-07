@@ -34,6 +34,9 @@ To request an invoice for mint:
 const { invoice } = await provider.blindReceive({ assetId, amount: 5 });
 ```
 
+For witness receiving, request `"witnessReceive"` in `methods` and call
+`provider.witnessReceive({ assetId, amount: 5 })` instead.
+
 The wallet asks for confirmation, creates the invoice and returns it. Put it
 in the mint form and submit it to the bridge or faucet. `issueAsset()` creates
 a new asset; it is not used to receive an existing bridge asset.
@@ -68,7 +71,7 @@ if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/c4669a7e99b27e8819568c10e6cafc12ec1376ef/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/c68fc96d9d812d78aa00e669c2e547ce281a2bab/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.
@@ -90,7 +93,7 @@ const wallet = createWalletConnectWallet({
   client: walletKit,
   network: "regtest",
   account: "public-wallet-id", // stable public identifier, never a secret
-  methods: ["enable", "getInfo", "blindReceive", "burnAsset", "getConsignment", "signMessage"],
+  methods: ["enable", "getInfo", "blindReceive", "witnessReceive", "burnAsset", "getConsignment", "signMessage"],
   approveSession: showConnectionPrompt, // your UI returns Promise<boolean>
   getProvider: (context) => createRgbProvider(context),
 });
