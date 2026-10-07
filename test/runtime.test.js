@@ -179,6 +179,10 @@ async function fixture(t, overrides = {}, connectOptions = {}) {
       counts.receive++;
       return { invoice: "rgb:invoice", recipientId: "utxob:seal", minConfirmations: 3, ...args };
     },
+    async witnessReceive(args) {
+      counts.receive++;
+      return { invoice: "rgb:witness", recipientId: "wvout:script", minConfirmations: 3, ...args };
+    },
     async burnAsset(args) {
       counts.burn++;
       return { ...args, txid, transferId: 10, status: "WaitingConfirmations", minConfirmations: 3 };
@@ -204,6 +208,7 @@ async function fixture(t, overrides = {}, connectOptions = {}) {
       "enable",
       "getInfo",
       "blindReceive",
+      "witnessReceive",
       "burnAsset",
       "getConsignment",
       "listAssets",
@@ -324,6 +329,28 @@ describe("WalletConnect transport", () => {
     assert.deepEqual(await provider.listAssets(), [{ id: assetId, balance: 10 }]);
     assert.ok((await provider.getInfo()).methods.includes("burnAsset"));
     await assert.rejects(provider.payLnInvoice({ invoice: "ln:x" }), code("METHOD_NOT_SUPPORTED"));
+  });
+
+  it("serves witness invoices with optional arguments and deduplicates requests", async (t) => {
+    const f = await fixture(t, {}, { methods: ["witnessReceive"], optionalMethods: [] }),
+      provider = await f.connect();
+    await assert.rejects(provider.witnessReceive(), code("NOT_ENABLED"));
+    await provider.enable();
+    assert.ok((await provider.getInfo()).methods.includes("witnessReceive"));
+    const args = { assetId, amount: 5, durationSeconds: 900, minConfirmations: 6 };
+    const invoice = await provider.witnessReceive(args);
+    assert.deepEqual(invoice, { invoice: "rgb:witness", recipientId: "wvout:script", ...args });
+    const event = f.bus.calls.at(-1);
+    assert.equal(event.params.request.method, "rgb_witnessReceive");
+    assert.deepEqual(event.params.request.params, [args]);
+    f.bus.wallet.emitter.emit("session_request", event);
+    await tick();
+    assert.equal(f.counts.receive, 1);
+    assert.deepEqual(f.bus.responses.at(-1).result, invoice);
+    await provider.witnessReceive();
+    assert.deepEqual(f.bus.calls.at(-1).params.request.params, []);
+    await provider.witnessReceive(undefined);
+    assert.deepEqual(f.bus.calls.at(-1).params.request.params, []);
   });
 
   it("burn arguments pass unchanged; proof chunks reconstruct the exact bytes", async (t) => {
