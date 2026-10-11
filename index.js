@@ -179,7 +179,9 @@ export function createWalletConnectProvider({ client, topic, network }) {
       if (!current().methods.has(wire(method))) throw fail("Permission was revoked", "NOT_ENABLED");
       return result;
     } catch (error) {
-      throw fromRpc(error);
+      const mapped = fromRpc(error);
+      if (mapped.code === "NOT_ENABLED") enabled = false;
+      throw mapped;
     }
   };
   const dispose = () => {
