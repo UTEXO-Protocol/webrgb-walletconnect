@@ -712,6 +712,27 @@ describe("WalletConnect transport", () => {
     assert.equal(f.counts.enable, 1);
   });
 
+  it("can be enabled again when the wallet loses its enabled state", async (t) => {
+    const f = await fixture(t),
+      provider = await f.connect(),
+      request = f.bus.dapp.request.bind(f.bus.dapp);
+    let walletEnabled = true;
+    f.bus.dapp.request = async (args) => {
+      if (args.request.method === "rgb_enable") walletEnabled = true;
+      else if (!walletEnabled) throw { code: 3001, message: "Call enable() first" };
+      return request(args);
+    };
+
+    await provider.enable();
+    walletEnabled = false;
+    await assert.rejects(provider.getInfo(), code("NOT_ENABLED"));
+    assert.equal(provider.enabled, false);
+
+    await provider.enable();
+    assert.equal(walletEnabled, true);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_enable").length, 2);
+  });
+
   it("dApp verifies required grants even if a wallet approves a subset", async (t) => {
     const f = await fixture(t, {}, { methods: ["blindReceive"] });
     const approve = f.bus.wallet.approveSession;
