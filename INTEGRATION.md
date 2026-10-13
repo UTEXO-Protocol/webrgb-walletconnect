@@ -51,6 +51,10 @@ if (!supports(info, "burnAsset") || !supports(info, "getConsignment") ||
     !provider.burnAsset || !provider.getConsignment) {
   throw new Error("This wallet does not support BFA burn proofs");
 }
+const namespace = args.burnRecipient.chainId.split(":")[0];
+if (!(info.burnRecipientNamespaces ?? ["eip155"]).includes(namespace)) {
+  throw new Error("Unsupported burn recipient namespace");
+}
 const burn = await provider.burnAsset(args); // RgbBurnAssetArgs
 await saveBurn(burn); // persist the result in your dApp
 const proof = await provider.getConsignment({ assetId: burn.assetId, txid: burn.txid });
@@ -71,7 +75,7 @@ if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/c68fc96d9d812d78aa00e669c2e547ce281a2bab/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/4b04e78f55e9808ee491ef2510fd9eb8c006cbe5/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.

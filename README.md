@@ -67,11 +67,10 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/c68fc96d9d812d78aa00e669c2e547ce281a2bab/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/4b04e78f55e9808ee491ef2510fd9eb8c006cbe5/SPEC.md).
 
-The application supplies `@utexo/webrgb` (^0.1.2) as a peer dependency, so both packages
-share one contract. Development pins core to a Git commit until its npm release.
-For local integration, install the core and adapter tarballs together.
+The application supplies `@utexo/webrgb` (^0.1.3) as a peer dependency, so both packages
+share one contract. Development uses the published `0.1.3` package.
 
 ## Development
 

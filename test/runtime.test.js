@@ -357,6 +357,7 @@ describe("WalletConnect transport", () => {
     const f = await fixture(t),
       provider = await f.connect();
     await provider.enable();
+    assert.equal((await provider.getInfo()).burnRecipientNamespaces, undefined);
     const burn = await provider.burnAsset(burnArgs);
     assert.equal(burn.txid, txid);
     assert.equal(f.counts.burn, 1);
@@ -374,6 +375,32 @@ describe("WalletConnect transport", () => {
         .filter((e) => e.result?.encoding)
         .every((e) => e.result.data.length <= (CONSIGNMENT_CHUNK_BYTES / 3) * 4),
     );
+  });
+
+  it("preserves native burn recipients and namespace capabilities on RGB sessions", async (t) => {
+    const f = await fixture(t);
+    const getInfo = f.backend.getInfo;
+    const namespaces = ["eip155", "tron", "cosmos"];
+    f.backend.getInfo = async () => ({ ...await getInfo(), burnRecipientNamespaces: namespaces });
+    const provider = await f.connect();
+    await provider.enable();
+    assert.deepEqual((await provider.getInfo()).burnRecipientNamespaces, namespaces);
+    assert.deepEqual(Object.keys(f.bus.dapp.session.get(provider.topic).namespaces), ["rgb"]);
+    const recipients = [
+      burnArgs.burnRecipient,
+      { chainId: "tron:728126428", address: "TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL" },
+      { chainId: "cosmos:cosmoshub-4", address: "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0" },
+    ];
+    for (const burnRecipient of recipients) {
+      const args = { ...burnArgs, burnRecipient };
+      const burn = await provider.burnAsset(args);
+      assert.deepEqual(burn.burnRecipient, burnRecipient);
+      const event = f.bus.calls.at(-1);
+      assert.equal(event.params.chainId, "rgb:regtest");
+      assert.equal(event.params.request.method, "rgb_burnAsset");
+      assert.deepEqual(event.params.request.params, [args]);
+    }
+    assert.equal(f.counts.burn, recipients.length);
   });
 
   it("optional capabilities are filtered by session grants", async (t) => {

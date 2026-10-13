@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Use published `@utexo/webrgb@0.1.3` and check burn recipient namespaces in
+  the integration example. Payout addresses and capabilities pass through unchanged.
+
 ### Fixed
 
 - Allow dApps to call `enable()` again when a wallet reports that its enabled
