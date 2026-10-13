@@ -1,5 +1,5 @@
 // Compile-only consumer: check the public exports with Bundler resolution.
-import type { RgbBurnAssetArgs, RgbGetConsignmentResult, RgbProvider, RgbSignMessageResult } from "@utexo/webrgb";
+import { supports, type RgbBurnAssetArgs, type RgbGetConsignmentResult, type RgbProvider, type RgbSignMessageResult } from "@utexo/webrgb";
 import {
   connectWalletConnect,
   createWalletConnectProvider,
@@ -55,6 +55,10 @@ async function burnAndGetProof(
   args: RgbBurnAssetArgs,
 ): Promise<RgbGetConsignmentResult | undefined> {
   if (!provider.burnAsset || !provider.getConsignment) return;
+  const info = await provider.getInfo();
+  if (!supports(info, "burnAsset") || !supports(info, "getConsignment")) return;
+  const namespace = args.burnRecipient.chainId.split(":")[0];
+  if (!(info.burnRecipientNamespaces ?? ["eip155"]).includes(namespace)) return;
   const burn = await provider.burnAsset(args);
   return provider.getConsignment({ assetId: burn.assetId, txid: burn.txid });
 }
