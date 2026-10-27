@@ -107,7 +107,19 @@ financial request identities and use the wallet's operation/proof recovery flow
 when its outcome is uncertain. This transport does not add durable burn recovery
 across wallet process crashes.
 
-`subscribeAvailability(listener)` observes changes to authorization availability.
+`subscribeAvailability(listener)` observes `{ enabled, info?, authorization? }`.
+`info` is emitted only after a validated `getInfo` response; observers do not
+trigger any additional request. `authorization: "REVOKED"` is an explicit terminal
+wallet classification, while `"SUSPENDED"` is temporary. Generic `NOT_ENABLED`
+errors do not imply revocation. The JSON-RPC numeric code and `data` string remain
+backwards compatible; `authorization` is an optional error extension.
+
+Read/enable calls have a 30-second deadline (`requestTimeoutMs`, maximum 120
+seconds). A timeout invalidates cached availability and does not retry a call.
+Financial requests retain their original transport lifetime and are never
+replayed.
+
+Availability notifications describe authorization availability.
 A false value can mean temporary wallet suspension; it does not revoke the
 WalletConnect pairing. Keep a valid stored topic through temporary offline/locked
 states and retry a bounded read-only handshake when the user returns. Delete it

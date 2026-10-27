@@ -53,7 +53,7 @@ function fail(message, code = "INTERNAL_ERROR") {
 }
 /** @param {any} error */
 function fromRpc(error) {
-  const code = typeof error?.data === "string" ? error.data : error?.code;
+  const code = typeof error?.data === "string" ? error.data : error?.data?.code ?? error?.code;
   const mapped = RGB_ERROR_CODES.includes(code)
     ? code
     : [4001, 5000, 5001, 5002, 5003].includes(code)
@@ -65,7 +65,11 @@ function fromRpc(error) {
           : [3001].includes(code)
             ? "NOT_ENABLED"
             : "INTERNAL_ERROR";
-  return fail(typeof error?.message === "string" ? error.message : "Wallet request failed", mapped);
+  const authorization = error?.authorization ?? error?.data?.authorization;
+  return Object.assign(
+    fail(typeof error?.message === "string" ? error.message : "Wallet request failed", mapped),
+    mapped === "NOT_ENABLED" && ["REVOKED", "SUSPENDED"].includes(authorization) ? { authorization } : {},
+  );
 }
 /** @param {string} network */
 function chainFor(network) {
@@ -152,8 +156,12 @@ function infoFor(info, network, allowed) {
 }
 
 /** @param {import("./index.js").WalletConnectProviderOptions} options */
-export function createWalletConnectProvider({ client, topic, network }) {
+export function createWalletConnectProvider({ client, topic, network, requestTimeoutMs = 30_000 }) {
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 120_000)
+    throw fail("Read/handshake timeout must be between 1 and 120000ms", "INVALID_PARAMS");
   const chainId = chainFor(network);
+  const relayer = client.core.relayer;
+  const relayUnavailableEvents = ["relayer_disconnect", "relayer_transport_closed", "relayer_connection_stalled"];
   let disposed = false;
   let enabled = false;
   let previouslyEnabled = false;
@@ -162,14 +170,14 @@ export function createWalletConnectProvider({ client, topic, network }) {
   let enabling;
   /** @type {Map<string, Set<(transfer: import("@utexo/webrgb").RgbTransfer) => void>>} */
   const listeners = new Map();
-  /** @type {Set<(enabled: boolean) => void>} */
+  /** @type {Set<(state: import("./index.js").WalletConnectAvailability) => void>} */
   const availabilityListeners = new Set();
-  /** @param {boolean} value */
-  const setEnabled = (value) => {
-    if (enabled === value) return;
+  /** @param {boolean} value @param {"REVOKED" | "SUSPENDED" | undefined} [authorization] */
+  const setEnabled = (value, authorization) => {
+    if (enabled === value && !authorization) return;
     enabled = value;
     for (const listener of availabilityListeners) {
-      try { listener(value); } catch { /* Observers do not own authorization. */ }
+      try { listener({ enabled: value, ...(authorization ? { authorization } : {}) }); } catch { /* Observers do not own authorization. */ }
     }
   };
   const identity = (/** @type {import("./index.js").WalletConnectSession} */ session) => ({
@@ -203,13 +211,25 @@ export function createWalletConnectProvider({ client, topic, network }) {
     if (!current().methods.has(wire(method)))
       throw fail(`${method} was not approved`, "METHOD_NOT_SUPPORTED");
     try {
-      const result = await client.request({ topic, chainId, request: { method: wire(method), params } });
+      const remote = client.request({ topic, chainId, request: { method: wire(method), params } });
+      let timer;
+      let result;
+      try {
+        result = await (method === "enable" || RESUMABLE_READS.has(method)
+          ? Promise.race([remote, new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              setEnabled(false);
+              reject(fail("Wallet did not respond. Open and unlock it, then try again.", "INTERNAL_ERROR"));
+            }, requestTimeoutMs);
+          })])
+          : remote);
+      } finally { clearTimeout(timer); }
       if (!assertRevision(expected).methods.has(wire(method)))
         throw fail("Permission was revoked", "NOT_ENABLED");
       return result;
     } catch (error) {
       const mapped = fromRpc(error);
-      if (mapped.code === "NOT_ENABLED") setEnabled(false);
+      if (mapped.code === "NOT_ENABLED") setEnabled(false, mapped.authorization);
       throw mapped;
     }
   };
@@ -246,7 +266,7 @@ export function createWalletConnectProvider({ client, topic, network }) {
     } catch (error) {
       // No generic retry and no replay of invoice/address/sign/send/burn requests.
       // A new authorization handshake may only recover one rejected read.
-      if (recovered || fromRpc(error).code !== "NOT_ENABLED" || !RESUMABLE_READS.has(method)) throw error;
+      if (recovered || fromRpc(error).code !== "NOT_ENABLED" || fromRpc(error).authorization === "REVOKED" || !RESUMABLE_READS.has(method)) throw error;
       current();
       await enable();
       return dispatch(method, params);
@@ -263,6 +283,19 @@ export function createWalletConnectProvider({ client, topic, network }) {
       client.off(/** @type {any} */ (event), lost);
     client.off("session_event", onEvent);
     client.off("session_update", updated);
+    for (const event of relayUnavailableEvents) relayer?.off(event, relayUnavailable);
+    relayer?.off("relayer_connect", relayResumed);
+  };
+  const relayUnavailable = () => setEnabled(false, "SUSPENDED");
+  /** @type {Promise<unknown> | undefined} */
+  let resuming;
+  const relayResumed = () => {
+    if (disposed || !previouslyEnabled || resuming) return;
+    // A reconnect resumes authorization/readiness only. Financial requests stay
+    // with their existing IDs; no transaction is issued by this callback.
+    const pending = enable().then(() => provider.getInfo()).catch(() => {});
+    resuming = pending;
+    void pending.finally(() => { if (resuming === pending) resuming = undefined; });
   };
   /** @param {{topic: string}} event */
   const lost = (event) => {
@@ -299,6 +332,8 @@ export function createWalletConnectProvider({ client, topic, network }) {
     client.on(/** @type {any} */ (event), lost);
   client.on("session_event", onEvent);
   client.on("session_update", updated);
+  for (const event of relayUnavailableEvents) relayer?.on(event, relayUnavailable);
+  relayer?.on("relayer_connect", relayResumed);
   /** @type {Record<string, any>} */
   const provider = {
     topic,
@@ -312,12 +347,16 @@ export function createWalletConnectProvider({ client, topic, network }) {
       }
     },
     enable,
-    subscribeAvailability(/** @type {(enabled: boolean) => void} */ listener) {
+    subscribeAvailability(/** @type {(state: import("./index.js").WalletConnectAvailability) => void} */ listener) {
       availabilityListeners.add(listener);
       return () => availabilityListeners.delete(listener);
     },
     async getInfo() {
-      return infoFor(await request("getInfo"), network, current());
+      const info = infoFor(await request("getInfo"), network, current());
+      for (const listener of availabilityListeners) {
+        try { listener({ enabled, info }); } catch { /* Readiness observers cannot change the result. */ }
+      }
+      return info;
     },
     async getConsignment(/** @type {import("@utexo/webrgb").RgbGetConsignmentArgs} */ args) {
       proofArgs(args);
@@ -863,6 +902,7 @@ export function createWalletConnectWallet(options) {
                       : -32000,
           message: mapped.message,
           data: mapped.code,
+          ...(mapped.authorization ? { authorization: mapped.authorization } : {}),
         },
       };
     };

@@ -76,7 +76,7 @@ function transport() {
         },
         getAll: () => [...sessions.values()],
       },
-      core: { expirer, pairing: { async disconnect() {} } },
+      core: { expirer, relayer: new EventEmitter(), pairing: { async disconnect() {} } },
       async disconnect({ topic }) {
         for (const c of [dapp, wallet]) {
           c.sessions.delete(topic);
@@ -879,7 +879,7 @@ describe("WalletConnect transport", () => {
 
   it("reports temporary authorization loss and recovery without disconnecting the durable session", async (t) => {
     const f = await fixture(t), provider = await f.connect(), availability = [];
-    const unsubscribe = provider.subscribeAvailability((value) => availability.push(value));
+    const unsubscribe = provider.subscribeAvailability(({ enabled, info }) => { if (!info) availability.push(enabled); });
     await provider.enable();
     f.host.dispose();
     const resumed = createWalletConnectWallet(f.options);
@@ -890,6 +890,89 @@ describe("WalletConnect transport", () => {
     unsubscribe();
     provider.dispose();
     assert.deepEqual(availability, [true, false, true]);
+  });
+
+  it("retains an explicit terminal authorization reason without retrying a read", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const before = f.bus.calls.length;
+    f.backend.getInfo = async () => { throw Object.assign(new Error("Grant revoked"), {
+      code: "NOT_ENABLED", authorization: "REVOKED",
+    }); };
+    await assert.rejects(provider.getInfo(), (error) => error.code === "NOT_ENABLED" && error.authorization === "REVOKED");
+    assert.equal(f.bus.calls.length - before, 1);
+    assert.equal(f.bus.responses.at(-1).error.data, "NOT_ENABLED");
+    assert.equal(f.bus.responses.at(-1).error.authorization, "REVOKED");
+    assert.equal(provider.enabled, false);
+  });
+
+  it("bounds a silent handshake and ignores its late success without deleting the session", async (t) => {
+    const f = await fixture(t), old = await f.connect();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 5 });
+    t.after(() => provider.dispose());
+    const response = deferred();
+    f.bus.dapp.request = () => response.promise;
+    await assert.rejects(provider.enable(), /did not respond/);
+    response.resolve(null);
+    await tick();
+    assert.equal(provider.enabled, false);
+    assert.equal(f.bus.dapp.sessions.size, 1);
+  });
+
+  it("publishes readiness only from validated info without issuing observer RPCs", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), seen = [];
+    provider.subscribeAvailability((state) => seen.push(state));
+    await provider.enable();
+    const before = f.bus.calls.length;
+    await provider.getInfo();
+    assert.equal(f.bus.calls.length - before, 1);
+    assert.equal(seen.at(-1).info.ready, true);
+    f.backend.getInfo = async () => ({ ready: true, network: "wrong", methods: [] });
+    const length = seen.length;
+    await assert.rejects(provider.getInfo(), code("INTERNAL_ERROR"));
+    assert.equal(seen.length, length);
+  });
+
+  it("never applies the read deadline as a retry or financial request timeout", async (t) => {
+    const f = await fixture(t), old = await f.connect();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 5 });
+    t.after(() => provider.dispose());
+    await provider.enable();
+    const pending = deferred(), original = f.backend.burnAsset;
+    let settled = false;
+    f.backend.burnAsset = async (args) => { await pending.promise; return original(args); };
+    const burn = provider.burnAsset(burnArgs).finally(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(settled, false);
+    pending.resolve();
+    await burn;
+    assert.equal(f.counts.burn, 1);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_burnAsset").length, 1);
+  });
+
+  it("marks relay loss temporary and rechecks readiness once on reconnect without replaying work", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const states = [];
+    provider.subscribeAvailability((state) => states.push(state));
+    const start = f.bus.calls.length;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    assert.equal(provider.enabled, false);
+    assert.equal(states.at(-1).authorization, "SUSPENDED");
+    assert.equal(f.bus.dapp.sessions.size, 1);
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.equal(states.at(-1).info.ready, true);
+    assert.deepEqual(f.bus.calls.slice(start).map((event) => event.params.request.method), ["rgb_enable", "rgb_getInfo"]);
+    assert.equal(f.counts.burn, 0);
+    assert.equal(f.counts.receive, 0);
+    provider.dispose();
+    assert.equal(f.bus.dapp.core.relayer.listenerCount("relayer_disconnect"), 0);
+    assert.equal(f.bus.dapp.core.relayer.listenerCount("relayer_connect"), 0);
   });
 
   it("dApp verifies required grants even if a wallet approves a subset", async (t) => {
