@@ -172,6 +172,11 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
   let lastAuthorization;
   let previouslyEnabled = false;
   let revision = 0;
+  // Relay availability is separate from session authority. Losing a connection
+  // invalidates readiness replies without discarding a financial result that
+  // still belongs to its original, authorized request.
+  let relayAvailable = true;
+  let relayGeneration = 0;
   /** @type {Promise<void> | undefined} */
   let enabling;
   /** @type {Map<string, Set<(transfer: import("@utexo/webrgb").RgbTransfer) => void>>} */
@@ -212,12 +217,19 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
     if (expected !== revision) throw fail("Session changed during the request", "NOT_ENABLED");
     return allowed;
   };
-  /** @param {string} method @param {unknown[]} params */
-  const dispatch = async (method, params) => {
+  const assertRelay = (/** @type {number} */ expected) => {
+    if (!relayAvailable || expected !== relayGeneration)
+      throw authorizationFailure("Wallet relay is temporarily unavailable. Reconnect and try again.", "SUSPENDED");
+  };
+  /** @param {string} method @param {unknown[]} params @param {(result: any) => any} [accept] */
+  const dispatch = async (method, params, accept) => {
     const expected = revision;
+    const expectedRelay = relayGeneration;
+    const readiness = method === "enable" || RESUMABLE_READS.has(method);
     if (!current().methods.has(wire(method)))
       throw fail(`${method} was not approved`, "METHOD_NOT_SUPPORTED");
     try {
+      if (readiness) assertRelay(expectedRelay);
       const remote = client.request({ topic, chainId, request: { method: wire(method), params } });
       let timer;
       let result;
@@ -225,7 +237,7 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
         result = await (method === "enable" || RESUMABLE_READS.has(method)
           ? Promise.race([remote, new Promise((_, reject) => {
             timer = setTimeout(() => {
-              setEnabled(false);
+              if (expectedRelay === relayGeneration) setEnabled(false);
               reject(fail("Wallet did not respond. Open and unlock it, then try again.", "INTERNAL_ERROR"));
             }, requestTimeoutMs);
           })])
@@ -233,8 +245,15 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
       } finally { clearTimeout(timer); }
       if (!assertRevision(expected).methods.has(wire(method)))
         throw fail("Permission was revoked", "NOT_ENABLED");
-      return result;
+      if (readiness) assertRelay(expectedRelay);
+      // Consume readiness under the same generation check, without an await
+      // between accepting this response and publishing its validated info.
+      return accept ? accept(result) : result;
     } catch (error) {
+      // An old read/handshake must not overwrite availability established by a
+      // newer relay connection, even when that old response is an error.
+      if (readiness && expectedRelay !== relayGeneration)
+        throw authorizationFailure("Wallet relay changed during the request. Try again.", "SUSPENDED");
       const mapped = fromRpc(error);
       if (mapped.code === "NOT_ENABLED") setEnabled(false, mapped.authorization);
       throw mapped;
@@ -246,8 +265,10 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
     current();
     if (!enabling) {
       const expected = revision;
+      const expectedRelay = relayGeneration;
       const pending = dispatch("enable", []).then(() => {
         assertRevision(expected);
+        assertRelay(expectedRelay);
         previouslyEnabled = true;
         setEnabled(true);
       });
@@ -256,8 +277,8 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
     }
     return enabling;
   };
-  /** @param {string} method @param {unknown[]} params */
-  const request = async (method, params = []) => {
+  /** @param {string} method @param {unknown[]} params @param {(result: any) => any} [accept] */
+  const request = async (method, params = [], accept) => {
     params = [...params];
     while (params.length && params.at(-1) === undefined) params.pop();
     current();
@@ -269,14 +290,14 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
       await enable();
     }
     try {
-      return await dispatch(method, params);
+      return await dispatch(method, params, accept);
     } catch (error) {
       // No generic retry and no replay of invoice/address/sign/send/burn requests.
       // A new authorization handshake may only recover one rejected read.
       if (recovered || fromRpc(error).code !== "NOT_ENABLED" || fromRpc(error).authorization === "REVOKED" || !RESUMABLE_READS.has(method)) throw error;
       current();
       await enable();
-      return dispatch(method, params);
+      return dispatch(method, params, accept);
     }
   };
   const dispose = () => {
@@ -293,10 +314,25 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
     for (const event of relayUnavailableEvents) relayer?.off(event, relayUnavailable);
     relayer?.off("relayer_connect", relayResumed);
   };
-  const relayUnavailable = () => setEnabled(false, "SUSPENDED");
   /** @type {Promise<unknown> | undefined} */
   let resuming;
+  const relayUnavailable = () => {
+    relayAvailable = false;
+    relayGeneration++;
+    // A reconnect gets its own handshake even if an older relay is still
+    // holding an unresolved response. Old finally handlers cannot clear it.
+    enabling = undefined;
+    resuming = undefined;
+    setEnabled(false, "SUSPENDED");
+  };
   const relayResumed = () => {
+    const wasAvailable = relayAvailable;
+    relayAvailable = true;
+    if (wasAvailable) return;
+    relayGeneration++;
+    // A locally rejected offline enable may not have reached its finally yet.
+    // It must not absorb the reconnect's first real authorization handshake.
+    enabling = undefined;
     if (disposed || !previouslyEnabled || resuming) return;
     // A reconnect resumes authorization/readiness only. Financial requests stay
     // with their existing IDs; no transaction is issued by this callback.
@@ -358,12 +394,14 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
       availabilityListeners.add(listener);
       return () => availabilityListeners.delete(listener);
     },
-    async getInfo() {
-      const info = infoFor(await request("getInfo"), network, current());
-      for (const listener of availabilityListeners) {
-        try { listener({ enabled, info }); } catch { /* Readiness observers cannot change the result. */ }
-      }
-      return info;
+    getInfo() {
+      return request("getInfo", [], (value) => {
+        const info = infoFor(value, network, current());
+        for (const listener of availabilityListeners) {
+          try { listener({ enabled, info }); } catch { /* Readiness observers cannot change the result. */ }
+        }
+        return info;
+      });
     },
     async getConsignment(/** @type {import("@utexo/webrgb").RgbGetConsignmentArgs} */ args) {
       proofArgs(args);

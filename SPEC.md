@@ -140,5 +140,10 @@ or authorization revision replacement. Local account, network, profile, expiry,
 origin and per-method namespace checks remain mandatory before and after RPCs.
 Core relay disconnect/stall/close events invalidate cached availability; a relay
 reconnect may perform one coalesced enable/info check, with no financial RPC.
+Readiness responses and deadlines from an earlier relay generation MUST NOT
+authorize or overwrite readiness for the current connection. Known-offline
+adapters MUST NOT queue new handshakes/reads. Relay availability is separate from
+session authority: an already dispatched financial request keeps its original
+identity/result and MUST NOT be replayed merely because the relay reconnects.
 Availability observers receive readiness only from validated getInfo responses;
 they MUST NOT create a recursive polling/retry loop.

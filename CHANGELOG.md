@@ -5,6 +5,8 @@
 - Guard late responses with session identity/revision checks and expose
   authorization availability subscriptions to connection UI.
 - Revalidate wallet backend grants on every enable handshake.
+- Reject stale relay-generation readiness and offline handshakes while retaining
+  the original result of an already dispatched financial request.
 
 # Changelog
 

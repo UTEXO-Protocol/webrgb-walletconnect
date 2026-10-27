@@ -977,6 +977,172 @@ describe("WalletConnect transport", () => {
     assert.equal(f.bus.dapp.core.relayer.listenerCount("relayer_connect"), 0);
   });
 
+  for (const event of ["relayer_disconnect", "relayer_transport_closed", "relayer_connection_stalled"])
+    it(`does not accept a pre-${event} enable reply or queue new offline handshakes`, async (t) => {
+      const f = await fixture(t), provider = await f.connect(), arrived = deferred(), release = deferred();
+      const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+      provider.subscribeAvailability((state) => states.push(state));
+      f.bus.dapp.request = async (args) => {
+        const result = await raw(args);
+        arrived.resolve();
+        await release.promise;
+        return result;
+      };
+      const enabling = provider.enable();
+      await arrived.promise;
+      f.bus.dapp.core.relayer.emit(event);
+      const before = f.bus.calls.length;
+      await assert.rejects(provider.enable(), (error) => error.code === "NOT_ENABLED" && error.authorization === "SUSPENDED");
+      await assert.rejects(provider.getInfo(), code("NOT_ENABLED"));
+      assert.equal(f.bus.calls.length, before);
+      release.resolve();
+      await assert.rejects(enabling, (error) => error.authorization === "SUSPENDED");
+      assert.equal(provider.enabled, false);
+      assert.deepEqual(states, [{ enabled: false, authorization: "SUSPENDED" }]);
+      assert.equal(f.bus.dapp.sessions.size, 1);
+      f.bus.dapp.request = raw;
+      f.bus.dapp.core.relayer.emit("relayer_connect");
+      await provider.enable();
+      assert.equal(provider.enabled, true);
+      assert.equal(f.counts.enable, 2);
+    });
+
+  for (const outcome of ["success", "revoked"])
+    it(`ignores a pre-disconnect getInfo ${outcome} without publishing stale readiness or terminal state`, async (t) => {
+      const f = await fixture(t), provider = await f.connect(), arrived = deferred(), release = deferred();
+      await provider.enable();
+      const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+      provider.subscribeAvailability((state) => states.push(state));
+      f.bus.dapp.request = async (args) => {
+        const result = await raw(args);
+        arrived.resolve();
+        await release.promise;
+        if (outcome === "revoked") throw { code: 3001, data: "NOT_ENABLED", authorization: "REVOKED" };
+        return result;
+      };
+      const info = provider.getInfo();
+      await arrived.promise;
+      f.bus.dapp.core.relayer.emit("relayer_disconnect");
+      const before = f.bus.calls.length;
+      release.resolve();
+      await assert.rejects(info, (error) => error.code === "NOT_ENABLED" && error.authorization === "SUSPENDED");
+      assert.equal(f.bus.calls.length, before);
+      assert.equal(provider.enabled, false);
+      assert.deepEqual(states, [{ enabled: false, authorization: "SUSPENDED" }]);
+      f.bus.dapp.request = raw;
+      f.bus.dapp.core.relayer.emit("relayer_connect");
+      await tick();
+      assert.equal(provider.enabled, true);
+      assert.equal(states.at(-1).info.ready, true);
+      assert.deepEqual(f.bus.calls.slice(before).map((call) => call.params.request.method), ["rgb_enable", "rgb_getInfo"]);
+      assert.equal(f.bus.dapp.sessions.size, 1);
+    });
+
+  it("reconnects a flapping relay without waiting for or accepting an earlier enable response", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), arrived = deferred(), release = deferred();
+    await provider.enable();
+    const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+    let hold = true;
+    provider.subscribeAvailability((state) => states.push(state));
+    f.bus.dapp.request = async (args) => {
+      const result = await raw(args);
+      if (hold && args.request.method === "rgb_enable") {
+        hold = false;
+        arrived.resolve();
+        await release.promise;
+      }
+      return result;
+    };
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await arrived.promise;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.equal(states.at(-1).info.ready, true);
+    const before = states.length;
+    release.resolve();
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.equal(states.length, before);
+    assert.equal(f.counts.enable, 3);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_getInfo").length, 1);
+  });
+
+  it("does not let a same-tick offline enable absorb the reconnect handshake", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const before = f.bus.calls.length;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    const offline = provider.enable();
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await assert.rejects(offline, (error) => error.authorization === "SUSPENDED");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.deepEqual(f.bus.calls.slice(before).map((call) => call.params.request.method), ["rgb_enable", "rgb_getInfo"]);
+  });
+
+  it("does not let an old relay handshake deadline clear newer validated readiness", async (t) => {
+    const f = await fixture(t), old = await f.connect(), arrived = deferred(), release = deferred();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 50 });
+    t.after(() => provider.dispose());
+    await provider.enable();
+    const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+    let hold = true;
+    provider.subscribeAvailability((state) => states.push(state));
+    f.bus.dapp.request = async (args) => {
+      const result = await raw(args);
+      if (hold && args.request.method === "rgb_enable") {
+        hold = false;
+        arrived.resolve();
+        await release.promise;
+      }
+      return result;
+    };
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await arrived.promise;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(states.at(-1).info.ready, true);
+    const before = states.length;
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    assert.equal(provider.enabled, true);
+    assert.equal(states.length, before);
+    release.resolve();
+    await tick();
+    assert.equal(states.length, before);
+  });
+
+  it("retains the original in-flight burn result across relay loss without replaying it", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), started = deferred(), release = deferred();
+    await provider.enable();
+    const original = f.backend.burnAsset;
+    f.backend.burnAsset = async (args) => {
+      started.resolve();
+      await release.promise;
+      return original(args);
+    };
+    const burn = provider.burnAsset(burnArgs);
+    await started.promise;
+    const requestId = f.bus.calls.at(-1).id;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    await assert.rejects(provider.burnAsset(burnArgs), code("NOT_ENABLED"));
+    release.resolve();
+    assert.equal((await burn).txid, txid);
+    assert.equal(provider.enabled, false);
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.deepEqual(f.bus.calls.filter((call) => call.params.request.method === "rgb_burnAsset").map((call) => call.id), [requestId]);
+    assert.equal(f.counts.burn, 1);
+    assert.equal(f.counts.receive, 0);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_enable").length, 2);
+  });
+
   it("classifies locally revoked adapter sessions even when relay disconnect fails", async (t) => {
     const f = await fixture(t), provider = await f.connect();
     await provider.enable();

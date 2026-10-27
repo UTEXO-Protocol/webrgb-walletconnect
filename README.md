@@ -119,6 +119,11 @@ seconds). A timeout invalidates cached availability and does not retry a call.
 Financial requests retain their original transport lifetime and are never
 replayed.
 
+Relay loss invalidates replies and deadlines from earlier readiness handshakes
+and reads. New handshakes/reads fail while the relay is known offline; retry after
+reconnection. This does not discard an already dispatched financial
+result or create another transaction.
+
 Availability notifications describe authorization availability.
 A false value can mean temporary wallet suspension; it does not revoke the
 WalletConnect pairing. Keep a valid stored topic through temporary offline/locked
