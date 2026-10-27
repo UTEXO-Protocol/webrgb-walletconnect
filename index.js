@@ -37,6 +37,12 @@ export const RGB_WALLETCONNECT_METHODS = Object.freeze([
   "getConsignment",
 ]);
 const EVENTS = ["transferReceived", "transferSettled"];
+// These operations cannot allocate an invoice/address, sign or spend. A single
+// NOT_ENABLED reply proves the original read did not run in the old runtime.
+const RESUMABLE_READS = new Set([
+  "getInfo", "listAssets", "getAssetBalance", "listTransfers",
+  "getTransferStatus", "decodeRgbInvoice", "getConsignment",
+]);
 const PROFILE = { webrgb: RGB_WALLETCONNECT_PROFILE };
 const DISCONNECT = getSdkError("USER_DISCONNECTED");
 const hosts = new WeakSet();
@@ -150,44 +156,108 @@ export function createWalletConnectProvider({ client, topic, network }) {
   const chainId = chainFor(network);
   let disposed = false;
   let enabled = false;
+  let previouslyEnabled = false;
+  let revision = 0;
+  /** @type {Promise<void> | undefined} */
+  let enabling;
   /** @type {Map<string, Set<(transfer: import("@utexo/webrgb").RgbTransfer) => void>>} */
   const listeners = new Map();
+  /** @type {Set<(enabled: boolean) => void>} */
+  const availabilityListeners = new Set();
+  /** @param {boolean} value */
+  const setEnabled = (value) => {
+    if (enabled === value) return;
+    enabled = value;
+    for (const listener of availabilityListeners) {
+      try { listener(value); } catch { /* Observers do not own authorization. */ }
+    }
+  };
+  const identity = (/** @type {import("./index.js").WalletConnectSession} */ session) => ({
+    origin: originOf(session.peer.metadata.url),
+    accounts: [...grants(session, chainId).accounts].filter((a) => a.startsWith(`${chainId}:`)).sort().join("\n"),
+  });
+  const initialIdentity = identity(client.session.get(topic));
   const current = () => {
     if (disposed) throw fail("Provider is disconnected", "NOT_ENABLED");
     try {
-      return grants(client.session.get(topic), chainId);
+      const session = client.session.get(topic);
+      const principal = identity(session);
+      if (principal.origin !== initialIdentity.origin || principal.accounts !== initialIdentity.accounts)
+        throw fail("Session identity changed", "NOT_ENABLED");
+      return grants(session, chainId);
     } catch {
-      enabled = false;
+      setEnabled(false);
       throw fail("Session is no longer authorized", "NOT_ENABLED");
     }
   };
   current();
+  /** A late handshake/response cannot authorize a replaced or disposed session. */
+  const assertRevision = (/** @type {number} */ expected) => {
+    const allowed = current();
+    if (expected !== revision) throw fail("Session changed during the request", "NOT_ENABLED");
+    return allowed;
+  };
+  /** @param {string} method @param {unknown[]} params */
+  const dispatch = async (method, params) => {
+    const expected = revision;
+    if (!current().methods.has(wire(method)))
+      throw fail(`${method} was not approved`, "METHOD_NOT_SUPPORTED");
+    try {
+      const result = await client.request({ topic, chainId, request: { method: wire(method), params } });
+      if (!assertRevision(expected).methods.has(wire(method)))
+        throw fail("Permission was revoked", "NOT_ENABLED");
+      return result;
+    } catch (error) {
+      const mapped = fromRpc(error);
+      if (mapped.code === "NOT_ENABLED") setEnabled(false);
+      throw mapped;
+    }
+  };
+  // enable is a real, single-flight handshake, never a browser-cache shortcut.
+  // The wallet revalidates its durable grant and current lock/runtime boundary.
+  const enable = async () => {
+    current();
+    if (!enabling) {
+      const expected = revision;
+      const pending = dispatch("enable", []).then(() => {
+        assertRevision(expected);
+        previouslyEnabled = true;
+        setEnabled(true);
+      });
+      enabling = pending;
+      void pending.finally(() => { if (enabling === pending) enabling = undefined; }).catch(() => {});
+    }
+    return enabling;
+  };
   /** @param {string} method @param {unknown[]} params */
   const request = async (method, params = []) => {
     params = [...params];
     while (params.length && params.at(-1) === undefined) params.pop();
-    const allowed = current();
-    if (method !== "enable" && !enabled) throw fail("Call enable() first", "NOT_ENABLED");
-    if (!allowed.methods.has(wire(method)))
-      throw fail(`${method} was not approved`, "METHOD_NOT_SUPPORTED");
+    current();
+    let recovered = false;
+    if (!enabled) {
+      if (!previouslyEnabled || !RESUMABLE_READS.has(method))
+        throw fail("Call enable() first", "NOT_ENABLED");
+      recovered = true;
+      await enable();
+    }
     try {
-      const result = await client.request({
-        topic,
-        chainId,
-        request: { method: wire(method), params },
-      });
-      if (!current().methods.has(wire(method))) throw fail("Permission was revoked", "NOT_ENABLED");
-      return result;
+      return await dispatch(method, params);
     } catch (error) {
-      const mapped = fromRpc(error);
-      if (mapped.code === "NOT_ENABLED") enabled = false;
-      throw mapped;
+      // No generic retry and no replay of invoice/address/sign/send/burn requests.
+      // A new authorization handshake may only recover one rejected read.
+      if (recovered || fromRpc(error).code !== "NOT_ENABLED" || !RESUMABLE_READS.has(method)) throw error;
+      current();
+      await enable();
+      return dispatch(method, params);
     }
   };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    enabled = false;
+    revision++;
+    setEnabled(false);
+    availabilityListeners.clear();
     listeners.clear();
     for (const event of ["session_delete", "session_expire"])
       client.off(/** @type {any} */ (event), lost);
@@ -201,6 +271,8 @@ export function createWalletConnectProvider({ client, topic, network }) {
   /** @param {{topic: string}} event */
   const updated = (event) => {
     if (event.topic !== topic) return;
+    revision++;
+    enabling = undefined;
     try {
       const allowed = current();
       if (!["rgb_enable", "rgb_getInfo"].every((m) => allowed.methods.has(m))) {
@@ -239,12 +311,10 @@ export function createWalletConnectProvider({ client, topic, network }) {
         return false;
       }
     },
-    async enable() {
-      current();
-      if (!enabled) {
-        await request("enable");
-        enabled = true;
-      }
+    enable,
+    subscribeAvailability(/** @type {(enabled: boolean) => void} */ listener) {
+      availabilityListeners.add(listener);
+      return () => availabilityListeners.delete(listener);
     },
     async getInfo() {
       return infoFor(await request("getInfo"), network, current());
@@ -511,7 +581,9 @@ export function createWalletConnectWallet(options) {
         },
         assertAuthorized() {
           if (controller.signal.aborted) throw fail("Session was revoked", "NOT_ENABLED");
-          const { allowed } = authorize(topic);
+          const { allowed, session: currentSession } = authorize(topic);
+          if (originOf(currentSession.peer.metadata.url) !== context.origin)
+            throw fail("Session origin changed", "NOT_ENABLED");
           const active = records.get(topic)?.active;
           if (
             active?.controller.signal.aborted ||
@@ -524,6 +596,7 @@ export function createWalletConnectWallet(options) {
       };
       const record = {
         controller,
+        origin: context.origin,
         enabled: false,
         listeners: [],
         proof: null,
@@ -542,7 +615,8 @@ export function createWalletConnectWallet(options) {
       throw error;
     }
     if (record.controller.signal.aborted) throw fail("Session was revoked", "NOT_ENABLED");
-    authorize(topic);
+    if (originOf(authorize(topic).session.peer.metadata.url) !== record.origin)
+      throw fail("Session origin changed", "NOT_ENABLED");
     return record;
   };
   /** @param {string} topic @param {any} record */
@@ -705,7 +779,7 @@ export function createWalletConnectWallet(options) {
       throw fail("Permission was revoked", "NOT_ENABLED");
     let result;
     if (method === "enable") {
-      if (!record.enabled) await provider.enable();
+      await provider.enable();
       authorize(topic);
       record.enabled = true;
       subscribe(topic, record);

@@ -84,3 +84,31 @@ npm run test:packed
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the project layout and checks.
 Runtime tests exercise the dApp/wallet boundary without a relay. Live relay
 and mobile testing are still pending.
+
+
+### Resuming a wallet runtime
+
+`enable()` performs a real, coalesced wallet authorization handshake every time it
+is explicitly called. Call it before starting a new transaction or allocating a
+receive invoice. A cached `enabled` value does not prove that the wallet is awake,
+unlocked or connected to the relay.
+
+After a previously enabled wallet runtime restarts, read-only calls can recover
+one `NOT_ENABLED` reply with one enable handshake and one repeated read. The
+allowlist is `getInfo`, `listAssets`, `getAssetBalance`, `listTransfers`,
+`getTransferStatus`, `decodeRgbInvoice`, and `getConsignment`. Every handshake and
+request rechecks the current topic, expiry, profile, network, accounts, origin
+and method permissions. An account or wallet-origin change requires a new
+provider; late callbacks cannot enable a disposed/replaced provider.
+
+No address/invoice allocation, message signature, issuance, send, payment or burn
+is automatically replayed, including after a timeout or lost response. Retain
+financial request identities and use the wallet's operation/proof recovery flow
+when its outcome is uncertain. This transport does not add durable burn recovery
+across wallet process crashes.
+
+`subscribeAvailability(listener)` observes changes to authorization availability.
+A false value can mean temporary wallet suspension; it does not revoke the
+WalletConnect pairing. Keep a valid stored topic through temporary offline/locked
+states and retry a bounded read-only handshake when the user returns. Delete it
+on genuine session expiry/deletion, explicit disconnect or incompatible identity.

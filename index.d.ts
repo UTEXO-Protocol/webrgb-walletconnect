@@ -99,6 +99,10 @@ export interface WalletConnectProvider extends RgbProvider {
   readonly topic: string;
   readonly chainId: string;
   disconnect(): Promise<void>;
+  /** Authorization availability, not relay connectivity or permission revocation.
+   * Temporary suspension may recover through enable or a read-only handshake.
+   */
+  subscribeAvailability(listener: (enabled: boolean) => void): () => void;
   /** Remove this adapter's listeners; leave the session available for restoration. */
   dispose(): void;
 }
