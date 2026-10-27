@@ -42,7 +42,8 @@
     "@walletconnect/sign-client": "^2.25.0",
     "publint": "^0.3.14",
     "typescript": "^5.6.0",
-    "@utexo/webrgb": "github:UTEXO-Protocol/webrgb#4b04e78f55e9808ee491ef2510fd9eb8c006cbe5"
+    "@utexo/webrgb": "github:UTEXO-Protocol/webrgb#4b04e78f55e9808ee491ef2510fd9eb8c006cbe5",
+    "@walletconnect/jsonrpc-utils": "1.0.8"
   },
   "engines": {
     "node": ">=20"

@@ -51,6 +51,10 @@ const hosts = new WeakSet();
 function fail(message, code = "INTERNAL_ERROR") {
   return Object.assign(new Error(message), { code });
 }
+/** @param {string} message @param {"REVOKED" | "SUSPENDED"} authorization */
+function authorizationFailure(message, authorization) {
+  return Object.assign(fail(message, "NOT_ENABLED"), { authorization });
+}
 /** @param {any} error */
 function fromRpc(error) {
   const code = typeof error?.data === "string" ? error.data : error?.data?.code ?? error?.code;
@@ -164,6 +168,8 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
   const relayUnavailableEvents = ["relayer_disconnect", "relayer_transport_closed", "relayer_connection_stalled"];
   let disposed = false;
   let enabled = false;
+  /** @type {"REVOKED" | "SUSPENDED" | undefined} */
+  let lastAuthorization;
   let previouslyEnabled = false;
   let revision = 0;
   /** @type {Promise<void> | undefined} */
@@ -174,8 +180,9 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
   const availabilityListeners = new Set();
   /** @param {boolean} value @param {"REVOKED" | "SUSPENDED" | undefined} [authorization] */
   const setEnabled = (value, authorization) => {
-    if (enabled === value && !authorization) return;
+    if (enabled === value && lastAuthorization === authorization) return;
     enabled = value;
+    lastAuthorization = authorization;
     for (const listener of availabilityListeners) {
       try { listener({ enabled: value, ...(authorization ? { authorization } : {}) }); } catch { /* Observers do not own authorization. */ }
     }
@@ -194,8 +201,8 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
         throw fail("Session identity changed", "NOT_ENABLED");
       return grants(session, chainId);
     } catch {
-      setEnabled(false);
-      throw fail("Session is no longer authorized", "NOT_ENABLED");
+      setEnabled(false, "REVOKED");
+      throw authorizationFailure("Session is no longer authorized", "REVOKED");
     }
   };
   current();
@@ -552,17 +559,19 @@ export function createWalletConnectWallet(options) {
   };
   /** @param {string} topic */
   const authorize = (topic) => {
-    if (disposed || revoked.has(topic))
-      throw fail("Session is no longer authorized", "NOT_ENABLED");
+    if (disposed) throw authorizationFailure("Wallet runtime is unavailable", "SUSPENDED");
+    if (revoked.has(topic)) throw authorizationFailure("Session is no longer authorized", "REVOKED");
     let session;
     try {
       session = client.getActiveSessions()[topic];
     } catch {
-      throw fail("Unknown session", "NOT_ENABLED");
+      throw authorizationFailure("Unknown session", "REVOKED");
     }
-    const allowed = grants(session, chainId);
+    let allowed;
+    try { allowed = grants(session, chainId); }
+    catch { throw authorizationFailure("Session is no longer authorized", "REVOKED"); }
     if (!allowed.accounts.has(walletAccount))
-      throw fail("Session belongs to another wallet", "NOT_ENABLED");
+      throw authorizationFailure("Session belongs to another wallet", "REVOKED");
     return { session, allowed };
   };
   /** @param {string} topic */
@@ -619,10 +628,11 @@ export function createWalletConnectWallet(options) {
           return records.get(topic)?.active?.controller.signal ?? controller.signal;
         },
         assertAuthorized() {
-          if (controller.signal.aborted) throw fail("Session was revoked", "NOT_ENABLED");
+          if (controller.signal.aborted)
+            throw authorizationFailure("Wallet runtime was suspended", revoked.has(topic) && !disposed ? "REVOKED" : "SUSPENDED");
           const { allowed, session: currentSession } = authorize(topic);
           if (originOf(currentSession.peer.metadata.url) !== context.origin)
-            throw fail("Session origin changed", "NOT_ENABLED");
+            throw authorizationFailure("Session origin changed", "REVOKED");
           const active = records.get(topic)?.active;
           if (
             active?.controller.signal.aborted ||
@@ -653,9 +663,10 @@ export function createWalletConnectWallet(options) {
       record.controller.abort();
       throw error;
     }
-    if (record.controller.signal.aborted) throw fail("Session was revoked", "NOT_ENABLED");
+    if (record.controller.signal.aborted)
+      throw authorizationFailure("Wallet runtime was suspended", revoked.has(topic) && !disposed ? "REVOKED" : "SUSPENDED");
     if (originOf(authorize(topic).session.peer.metadata.url) !== record.origin)
-      throw fail("Session origin changed", "NOT_ENABLED");
+      throw authorizationFailure("Session origin changed", "REVOKED");
     return record;
   };
   /** @param {string} topic @param {any} record */
@@ -810,7 +821,8 @@ export function createWalletConnectWallet(options) {
       throw fail("Request expired", "INVALID_PARAMS");
     record.active = { ...pending, expiry, method: request.method };
     const provider = record.provider;
-    if (method !== "enable" && !record.enabled) throw fail("Call enable() first", "NOT_ENABLED");
+    if (method !== "enable" && !record.enabled)
+      throw authorizationFailure("Call enable() first", "SUSPENDED");
     if (typeof provider[method] !== "function")
       throw fail("Wallet does not serve this method", "METHOD_NOT_SUPPORTED");
     // Check again after asynchronous provider construction and before delegating.

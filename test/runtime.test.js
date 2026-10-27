@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { describe, it } from "node:test";
 import { keccak_256 } from "@noble/hashes/sha3";
+import { formatJsonRpcError } from "@walletconnect/jsonrpc-utils";
 import {
   connectWalletConnect,
   createWalletConnectProvider,
@@ -767,6 +768,7 @@ describe("WalletConnect transport", () => {
     assert.equal(provider.enabled, true); // Browser cannot see a runtime replacement yet.
     assert.equal((await provider.getInfo()).ready, true);
     assert.equal(f.counts.enable, 2);
+    assert.equal(f.bus.responses.find((response) => response.error)?.error.authorization, "SUSPENDED");
     assert.equal(f.bus.dapp.sessions.size, 1);
     assert.deepEqual(f.bus.calls.slice(-3).map((e) => e.params.request.method),
       ["rgb_getInfo", "rgb_enable", "rgb_getInfo"]);
@@ -973,6 +975,61 @@ describe("WalletConnect transport", () => {
     provider.dispose();
     assert.equal(f.bus.dapp.core.relayer.listenerCount("relayer_disconnect"), 0);
     assert.equal(f.bus.dapp.core.relayer.listenerCount("relayer_connect"), 0);
+  });
+
+  it("classifies locally revoked adapter sessions even when relay disconnect fails", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    f.bus.wallet.disconnectSession = async () => { throw new Error("Relay offline"); };
+    await assert.rejects(f.host.disconnect(provider.topic), /Relay offline/);
+    const before = f.bus.calls.length;
+    await assert.rejects(provider.getInfo(), (error) => error.code === "NOT_ENABLED" && error.authorization === "REVOKED");
+    assert.equal(f.bus.calls.length - before, 1);
+    assert.equal(f.bus.dapp.sessions.size, 1); // Terminal grant and relay topic are distinct.
+    assert.equal(f.counts.burn, 0);
+  });
+
+  it("reports definite local identity expiry once without recursive availability callbacks", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), seen = [];
+    await provider.enable();
+    provider.subscribeAvailability((state) => {
+      seen.push(state);
+      assert.equal(provider.enabled, false);
+    });
+    f.bus.dapp.session.get(provider.topic).expiry = 1;
+    await assert.rejects(provider.getInfo(), (error) => error.authorization === "REVOKED");
+    assert.deepEqual(seen, [{ enabled: false, authorization: "REVOKED" }]);
+  });
+
+  it("does not classify an invalid individual request as durable permission revocation", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    await assert.rejects(f.bus.dapp.request({ topic: provider.topic, chainId: "rgb:wrong", request: { method: "rgb_getInfo", params: [] } }),
+      (error) => error.data === "NOT_ENABLED" && error.authorization === undefined);
+    assert.equal((await provider.getInfo()).ready, true);
+    assert.equal(f.counts.burn, 0);
+  });
+
+  for (const authorization of ["REVOKED", "SUSPENDED"]) it(`preserves ${authorization} through the official SDK error formatter and JSON response rejection`, async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const respond = f.bus.wallet.respondSessionRequest;
+    let formatted;
+    f.bus.wallet.respondSessionRequest = (args) => {
+      if (args.response.error) {
+        // WalletConnect SignClient's sendError uses this actual formatter. Its
+        // response handler rejects the decoded response.error bag unchanged.
+        formatted = JSON.parse(JSON.stringify(formatJsonRpcError(args.response.id, args.response.error)));
+        return respond({ ...args, response: formatted });
+      }
+      return respond(args);
+    };
+    f.backend.getInfo = async () => { throw Object.assign(new Error("Wallet unavailable"), { code: "NOT_ENABLED", authorization }); };
+    await assert.rejects(provider.getInfo(), (error) => error.code === "NOT_ENABLED" && error.authorization === authorization);
+    assert.equal(formatted.error.code, 3001);
+    assert.equal(formatted.error.data, "NOT_ENABLED");
+    assert.equal(formatted.error.authorization, authorization);
+    assert.equal(f.counts.burn, 0);
   });
 
   it("dApp verifies required grants even if a wallet approves a subset", async (t) => {
