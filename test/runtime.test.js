@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { describe, it } from "node:test";
 import { keccak_256 } from "@noble/hashes/sha3";
+import { formatJsonRpcError } from "@walletconnect/jsonrpc-utils";
 import {
   connectWalletConnect,
   createWalletConnectProvider,
@@ -76,7 +77,7 @@ function transport() {
         },
         getAll: () => [...sessions.values()],
       },
-      core: { expirer, pairing: { async disconnect() {} } },
+      core: { expirer, relayer: new EventEmitter(), pairing: { async disconnect() {} } },
       async disconnect({ topic }) {
         for (const c of [dapp, wallet]) {
           c.sessions.delete(topic);
@@ -518,7 +519,7 @@ describe("WalletConnect transport", () => {
     t.after(() => restored.dispose());
     await assert.rejects(restored.getInfo(), code("NOT_ENABLED"));
     await restored.enable();
-    assert.equal(f.counts.enable, 1);
+    assert.equal(f.counts.enable, 2);
     await restored.disconnect();
     assert.equal(f.context.signal.aborted, true);
     assert.equal(f.backendEvents.listenerCount("transferSettled"), 0);
@@ -752,12 +753,449 @@ describe("WalletConnect transport", () => {
 
     await provider.enable();
     walletEnabled = false;
-    await assert.rejects(provider.getInfo(), code("NOT_ENABLED"));
-    assert.equal(provider.enabled, false);
-
-    await provider.enable();
+    assert.equal((await provider.getInfo()).ready, true);
+    assert.equal(provider.enabled, true);
     assert.equal(walletEnabled, true);
     assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_enable").length, 2);
+  });
+
+  it("resumes a real stored wallet adapter without manual enable or new pairing", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    f.host.dispose();
+    const resumed = createWalletConnectWallet(f.options);
+    t.after(() => resumed.dispose());
+    assert.equal(provider.enabled, true); // Browser cannot see a runtime replacement yet.
+    assert.equal((await provider.getInfo()).ready, true);
+    assert.equal(f.counts.enable, 2);
+    assert.equal(f.bus.responses.find((response) => response.error)?.error.authorization, "SUSPENDED");
+    assert.equal(f.bus.dapp.sessions.size, 1);
+    assert.deepEqual(f.bus.calls.slice(-3).map((e) => e.params.request.method),
+      ["rgb_getInfo", "rgb_enable", "rgb_getInfo"]);
+  });
+
+  it("coalesces concurrent recovery handshakes and bounds a rejected read to one retry", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const raw = f.bus.dapp.request.bind(f.bus.dapp), pending = deferred();
+    let enabled = false, handshakes = 0, reads = 0;
+    f.bus.dapp.request = async (args) => {
+      if (args.request.method === "rgb_enable") { handshakes++; await pending.promise; enabled = true; }
+      if (args.request.method === "rgb_getInfo") { reads++; if (!enabled) throw { code: 3001 }; }
+      return raw(args);
+    };
+    const a = provider.getInfo(), b = provider.getInfo();
+    await tick();
+    assert.equal(handshakes, 1);
+    pending.resolve();
+    await Promise.all([a, b]);
+    assert.equal(reads, 4);
+    assert.equal(handshakes, 1);
+    f.bus.dapp.request = async ({ request }) => {
+      if (request.method === "rgb_getInfo") { reads++; throw { code: 3001 }; }
+      handshakes++;
+      return null;
+    };
+    const beforeReads = reads, beforeHandshakes = handshakes;
+    await assert.rejects(provider.getInfo(), code("NOT_ENABLED"));
+    assert.equal(reads - beforeReads, 2);
+    assert.equal(handshakes - beforeHandshakes, 1);
+    assert.equal(provider.enabled, false);
+  });
+
+  it("does not replay mutating methods, even when the wallet reports NOT_ENABLED", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const raw = f.bus.dapp.request.bind(f.bus.dapp);
+    for (const [method, args] of [["burnAsset", [burnArgs]], ["blindReceive", []], ["witnessReceive", []]]) {
+      await provider.enable();
+      let calls = 0, enables = 0;
+      f.bus.dapp.request = async (request) => {
+        if (request.request.method === `rgb_${method}`) { calls++; throw { code: 3001 }; }
+        enables++;
+        return raw(request);
+      };
+      await assert.rejects(provider[method](...args), code("NOT_ENABLED"));
+      assert.equal(calls, 1);
+      assert.equal(enables, 0);
+      assert.equal(provider.enabled, false);
+      f.bus.dapp.request = raw;
+    }
+    assert.equal(f.counts.burn, 0);
+    assert.equal(f.counts.receive, 0);
+  });
+
+  it("does not recover relay errors or permanently rejected enable by repeating a read", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const raw = f.bus.dapp.request.bind(f.bus.dapp);
+    let calls = 0;
+    f.bus.dapp.request = async () => { calls++; throw new Error("Relay offline"); };
+    await assert.rejects(provider.getInfo(), /Relay offline/);
+    assert.equal(calls, 1);
+    f.bus.dapp.request = raw;
+    f.host.dispose();
+    const resumed = createWalletConnectWallet({ ...f.options, getProvider: () => ({
+      ...f.backend, enable: async () => { throw Object.assign(new Error("Grant revoked"), { code: "NOT_ENABLED" }); },
+    }) });
+    t.after(() => resumed.dispose());
+    const start = f.bus.calls.length;
+    await assert.rejects(provider.getInfo(), code("NOT_ENABLED"));
+    assert.deepEqual(f.bus.calls.slice(start).map((e) => e.params.request.method), ["rgb_getInfo", "rgb_enable"]);
+    assert.equal(provider.enabled, false);
+  });
+
+  it("enable always revalidates the wallet grant, while simultaneous callers share one handshake", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    await Promise.all([provider.enable(), provider.enable(), provider.enable()]);
+    assert.equal(f.counts.enable, 2);
+    f.backend.enable = async () => { throw Object.assign(new Error("Grant expired"), { code: "NOT_ENABLED" }); };
+    await assert.rejects(provider.enable(), code("NOT_ENABLED"));
+    assert.equal(provider.enabled, false);
+  });
+
+  for (const change of ["account", "origin", "expiry"]) it(`rejects ${change} changes before recovery`, async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const session = f.bus.dapp.session.get(provider.topic), calls = f.bus.calls.length;
+    if (change === "account") session.namespaces.rgb.accounts = ["rgb:regtest:other-wallet"];
+    if (change === "origin") session.peer.metadata.url = "https://other.example";
+    if (change === "expiry") session.expiry = 1;
+    await assert.rejects(provider.enable(), code("NOT_ENABLED"));
+    assert.equal(f.bus.calls.length, calls);
+    assert.equal(provider.enabled, false);
+  });
+
+  for (const lifecycle of ["dispose", "session_update"]) it(`ignores late enable success after ${lifecycle}`, async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    const pending = deferred();
+    f.bus.dapp.request = () => pending.promise;
+    const enabling = provider.enable();
+    if (lifecycle === "dispose") provider.dispose();
+    else f.bus.dapp.emitter.emit("session_update", { topic: provider.topic });
+    pending.resolve(null);
+    await assert.rejects(enabling, code("NOT_ENABLED"));
+    assert.equal(provider.enabled, false);
+  });
+
+  it("reports temporary authorization loss and recovery without disconnecting the durable session", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), availability = [];
+    const unsubscribe = provider.subscribeAvailability(({ enabled, info }) => { if (!info) availability.push(enabled); });
+    await provider.enable();
+    f.host.dispose();
+    const resumed = createWalletConnectWallet(f.options);
+    t.after(() => resumed.dispose());
+    await provider.getInfo();
+    assert.deepEqual(availability, [true, false, true]);
+    assert.equal(f.bus.dapp.sessions.size, 1);
+    unsubscribe();
+    provider.dispose();
+    assert.deepEqual(availability, [true, false, true]);
+  });
+
+  it("retains an explicit terminal authorization reason without retrying a read", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const before = f.bus.calls.length;
+    f.backend.getInfo = async () => { throw Object.assign(new Error("Grant revoked"), {
+      code: "NOT_ENABLED", authorization: "REVOKED",
+    }); };
+    await assert.rejects(provider.getInfo(), (error) => error.code === "NOT_ENABLED" && error.authorization === "REVOKED");
+    assert.equal(f.bus.calls.length - before, 1);
+    assert.equal(f.bus.responses.at(-1).error.data, "NOT_ENABLED");
+    assert.equal(f.bus.responses.at(-1).error.authorization, "REVOKED");
+    assert.equal(provider.enabled, false);
+  });
+
+  it("bounds a silent handshake and ignores its late success without deleting the session", async (t) => {
+    const f = await fixture(t), old = await f.connect();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 5 });
+    t.after(() => provider.dispose());
+    const response = deferred();
+    f.bus.dapp.request = () => response.promise;
+    await assert.rejects(provider.enable(), /did not respond/);
+    response.resolve(null);
+    await tick();
+    assert.equal(provider.enabled, false);
+    assert.equal(f.bus.dapp.sessions.size, 1);
+  });
+
+  it("publishes readiness only from validated info without issuing observer RPCs", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), seen = [];
+    provider.subscribeAvailability((state) => seen.push(state));
+    await provider.enable();
+    const before = f.bus.calls.length;
+    await provider.getInfo();
+    assert.equal(f.bus.calls.length - before, 1);
+    assert.equal(seen.at(-1).info.ready, true);
+    f.backend.getInfo = async () => ({ ready: true, network: "wrong", methods: [] });
+    const length = seen.length;
+    await assert.rejects(provider.getInfo(), code("INTERNAL_ERROR"));
+    assert.equal(seen.length, length);
+  });
+
+  it("never applies the read deadline as a retry or financial request timeout", async (t) => {
+    const f = await fixture(t), old = await f.connect();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 5 });
+    t.after(() => provider.dispose());
+    await provider.enable();
+    const pending = deferred(), original = f.backend.burnAsset;
+    let settled = false;
+    f.backend.burnAsset = async (args) => { await pending.promise; return original(args); };
+    const burn = provider.burnAsset(burnArgs).finally(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(settled, false);
+    pending.resolve();
+    await burn;
+    assert.equal(f.counts.burn, 1);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_burnAsset").length, 1);
+  });
+
+  it("marks relay loss temporary and rechecks readiness once on reconnect without replaying work", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const states = [];
+    provider.subscribeAvailability((state) => states.push(state));
+    const start = f.bus.calls.length;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    assert.equal(provider.enabled, false);
+    assert.equal(states.at(-1).authorization, "SUSPENDED");
+    assert.equal(f.bus.dapp.sessions.size, 1);
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.equal(states.at(-1).info.ready, true);
+    assert.deepEqual(f.bus.calls.slice(start).map((event) => event.params.request.method), ["rgb_enable", "rgb_getInfo"]);
+    assert.equal(f.counts.burn, 0);
+    assert.equal(f.counts.receive, 0);
+    provider.dispose();
+    assert.equal(f.bus.dapp.core.relayer.listenerCount("relayer_disconnect"), 0);
+    assert.equal(f.bus.dapp.core.relayer.listenerCount("relayer_connect"), 0);
+  });
+
+  for (const event of ["relayer_disconnect", "relayer_transport_closed", "relayer_connection_stalled"])
+    it(`does not accept a pre-${event} enable reply or queue new offline handshakes`, async (t) => {
+      const f = await fixture(t), provider = await f.connect(), arrived = deferred(), release = deferred();
+      const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+      provider.subscribeAvailability((state) => states.push(state));
+      f.bus.dapp.request = async (args) => {
+        const result = await raw(args);
+        arrived.resolve();
+        await release.promise;
+        return result;
+      };
+      const enabling = provider.enable();
+      await arrived.promise;
+      f.bus.dapp.core.relayer.emit(event);
+      const before = f.bus.calls.length;
+      await assert.rejects(provider.enable(), (error) => error.code === "NOT_ENABLED" && error.authorization === "SUSPENDED");
+      await assert.rejects(provider.getInfo(), code("NOT_ENABLED"));
+      assert.equal(f.bus.calls.length, before);
+      release.resolve();
+      await assert.rejects(enabling, (error) => error.authorization === "SUSPENDED");
+      assert.equal(provider.enabled, false);
+      assert.deepEqual(states, [{ enabled: false, authorization: "SUSPENDED" }]);
+      assert.equal(f.bus.dapp.sessions.size, 1);
+      f.bus.dapp.request = raw;
+      f.bus.dapp.core.relayer.emit("relayer_connect");
+      await provider.enable();
+      assert.equal(provider.enabled, true);
+      assert.equal(f.counts.enable, 2);
+    });
+
+  for (const outcome of ["success", "revoked"])
+    it(`ignores a pre-disconnect getInfo ${outcome} without publishing stale readiness or terminal state`, async (t) => {
+      const f = await fixture(t), provider = await f.connect(), arrived = deferred(), release = deferred();
+      await provider.enable();
+      const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+      provider.subscribeAvailability((state) => states.push(state));
+      f.bus.dapp.request = async (args) => {
+        const result = await raw(args);
+        arrived.resolve();
+        await release.promise;
+        if (outcome === "revoked") throw { code: 3001, data: "NOT_ENABLED", authorization: "REVOKED" };
+        return result;
+      };
+      const info = provider.getInfo();
+      await arrived.promise;
+      f.bus.dapp.core.relayer.emit("relayer_disconnect");
+      const before = f.bus.calls.length;
+      release.resolve();
+      await assert.rejects(info, (error) => error.code === "NOT_ENABLED" && error.authorization === "SUSPENDED");
+      assert.equal(f.bus.calls.length, before);
+      assert.equal(provider.enabled, false);
+      assert.deepEqual(states, [{ enabled: false, authorization: "SUSPENDED" }]);
+      f.bus.dapp.request = raw;
+      f.bus.dapp.core.relayer.emit("relayer_connect");
+      await tick();
+      assert.equal(provider.enabled, true);
+      assert.equal(states.at(-1).info.ready, true);
+      assert.deepEqual(f.bus.calls.slice(before).map((call) => call.params.request.method), ["rgb_enable", "rgb_getInfo"]);
+      assert.equal(f.bus.dapp.sessions.size, 1);
+    });
+
+  it("reconnects a flapping relay without waiting for or accepting an earlier enable response", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), arrived = deferred(), release = deferred();
+    await provider.enable();
+    const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+    let hold = true;
+    provider.subscribeAvailability((state) => states.push(state));
+    f.bus.dapp.request = async (args) => {
+      const result = await raw(args);
+      if (hold && args.request.method === "rgb_enable") {
+        hold = false;
+        arrived.resolve();
+        await release.promise;
+      }
+      return result;
+    };
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await arrived.promise;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.equal(states.at(-1).info.ready, true);
+    const before = states.length;
+    release.resolve();
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.equal(states.length, before);
+    assert.equal(f.counts.enable, 3);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_getInfo").length, 1);
+  });
+
+  it("does not let a same-tick offline enable absorb the reconnect handshake", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const before = f.bus.calls.length;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    const offline = provider.enable();
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await assert.rejects(offline, (error) => error.authorization === "SUSPENDED");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.deepEqual(f.bus.calls.slice(before).map((call) => call.params.request.method), ["rgb_enable", "rgb_getInfo"]);
+  });
+
+  it("does not let an old relay handshake deadline clear newer validated readiness", async (t) => {
+    const f = await fixture(t), old = await f.connect(), arrived = deferred(), release = deferred();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 50 });
+    t.after(() => provider.dispose());
+    await provider.enable();
+    const raw = f.bus.dapp.request.bind(f.bus.dapp), states = [];
+    let hold = true;
+    provider.subscribeAvailability((state) => states.push(state));
+    f.bus.dapp.request = async (args) => {
+      const result = await raw(args);
+      if (hold && args.request.method === "rgb_enable") {
+        hold = false;
+        arrived.resolve();
+        await release.promise;
+      }
+      return result;
+    };
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await arrived.promise;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(states.at(-1).info.ready, true);
+    const before = states.length;
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    assert.equal(provider.enabled, true);
+    assert.equal(states.length, before);
+    release.resolve();
+    await tick();
+    assert.equal(states.length, before);
+  });
+
+  it("retains the original in-flight burn result across relay loss without replaying it", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), started = deferred(), release = deferred();
+    await provider.enable();
+    const original = f.backend.burnAsset;
+    f.backend.burnAsset = async (args) => {
+      started.resolve();
+      await release.promise;
+      return original(args);
+    };
+    const burn = provider.burnAsset(burnArgs);
+    await started.promise;
+    const requestId = f.bus.calls.at(-1).id;
+    f.bus.dapp.core.relayer.emit("relayer_disconnect");
+    await assert.rejects(provider.burnAsset(burnArgs), code("NOT_ENABLED"));
+    release.resolve();
+    assert.equal((await burn).txid, txid);
+    assert.equal(provider.enabled, false);
+    f.bus.dapp.core.relayer.emit("relayer_connect");
+    await tick();
+    assert.equal(provider.enabled, true);
+    assert.deepEqual(f.bus.calls.filter((call) => call.params.request.method === "rgb_burnAsset").map((call) => call.id), [requestId]);
+    assert.equal(f.counts.burn, 1);
+    assert.equal(f.counts.receive, 0);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_enable").length, 2);
+  });
+
+  it("classifies locally revoked adapter sessions even when relay disconnect fails", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    f.bus.wallet.disconnectSession = async () => { throw new Error("Relay offline"); };
+    await assert.rejects(f.host.disconnect(provider.topic), /Relay offline/);
+    const before = f.bus.calls.length;
+    await assert.rejects(provider.getInfo(), (error) => error.code === "NOT_ENABLED" && error.authorization === "REVOKED");
+    assert.equal(f.bus.calls.length - before, 1);
+    assert.equal(f.bus.dapp.sessions.size, 1); // Terminal grant and relay topic are distinct.
+    assert.equal(f.counts.burn, 0);
+  });
+
+  it("reports definite local identity expiry once without recursive availability callbacks", async (t) => {
+    const f = await fixture(t), provider = await f.connect(), seen = [];
+    await provider.enable();
+    provider.subscribeAvailability((state) => {
+      seen.push(state);
+      assert.equal(provider.enabled, false);
+    });
+    f.bus.dapp.session.get(provider.topic).expiry = 1;
+    await assert.rejects(provider.getInfo(), (error) => error.authorization === "REVOKED");
+    assert.deepEqual(seen, [{ enabled: false, authorization: "REVOKED" }]);
+  });
+
+  it("does not classify an invalid individual request as durable permission revocation", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    await assert.rejects(f.bus.dapp.request({ topic: provider.topic, chainId: "rgb:wrong", request: { method: "rgb_getInfo", params: [] } }),
+      (error) => error.data === "NOT_ENABLED" && error.authorization === undefined);
+    assert.equal((await provider.getInfo()).ready, true);
+    assert.equal(f.counts.burn, 0);
+  });
+
+  for (const authorization of ["REVOKED", "SUSPENDED"]) it(`preserves ${authorization} through the official SDK error formatter and JSON response rejection`, async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const respond = f.bus.wallet.respondSessionRequest;
+    let formatted;
+    f.bus.wallet.respondSessionRequest = (args) => {
+      if (args.response.error) {
+        // WalletConnect SignClient's sendError uses this actual formatter. Its
+        // response handler rejects the decoded response.error bag unchanged.
+        formatted = JSON.parse(JSON.stringify(formatJsonRpcError(args.response.id, args.response.error)));
+        return respond({ ...args, response: formatted });
+      }
+      return respond(args);
+    };
+    f.backend.getInfo = async () => { throw Object.assign(new Error("Wallet unavailable"), { code: "NOT_ENABLED", authorization }); };
+    await assert.rejects(provider.getInfo(), (error) => error.code === "NOT_ENABLED" && error.authorization === authorization);
+    assert.equal(formatted.error.code, 3001);
+    assert.equal(formatted.error.data, "NOT_ENABLED");
+    assert.equal(formatted.error.authorization, authorization);
+    assert.equal(f.counts.burn, 0);
   });
 
   it("dApp verifies required grants even if a wallet approves a subset", async (t) => {

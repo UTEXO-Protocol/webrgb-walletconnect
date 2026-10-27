@@ -35,7 +35,14 @@ export interface WalletConnectClient {
     request: { method: string; params: unknown[] };
   }): Promise<T>;
   disconnect(args: { topic: string; reason: { code: number; message: string } }): Promise<void>;
-  core: { pairing: { disconnect(args: { topic: string }): Promise<void> } };
+  core: {
+    pairing: { disconnect(args: { topic: string }): Promise<void> };
+    /** Official Core relayer events, when exposed by the caller's SDK. */
+    relayer?: {
+      on(event: string, listener: (...args: any[]) => void): unknown;
+      off(event: string, listener: (...args: any[]) => void): unknown;
+    };
+  };
 }
 
 /** Official WalletKit wallet API; no dApp-only SignClient methods are required. */
@@ -70,7 +77,7 @@ export interface WalletConnectWalletClient {
     topic: string;
     response:
       | { id: number; jsonrpc: "2.0"; result: any }
-      | { id: number; jsonrpc: "2.0"; error: { code: number; message: string; data?: string } };
+      | { id: number; jsonrpc: "2.0"; error: { code: number; message: string; data?: string; authorization?: "REVOKED" | "SUSPENDED" } };
   }): Promise<void>;
   emitSessionEvent(args: {
     topic: string;
@@ -95,10 +102,22 @@ export declare const RGB_WALLETCONNECT_METHODS: readonly RgbMethod[];
 export declare const CONSIGNMENT_CHUNK_BYTES: number;
 export declare const MAX_CONSIGNMENT_BYTES: number;
 
+export interface WalletConnectAvailability {
+  enabled: boolean;
+  /** Present only after a validated getInfo response, never from a cache. */
+  info?: import("@utexo/webrgb").RgbInfo;
+  /** Explicit wallet classification; absent NOT_ENABLED does not imply revocation. */
+  authorization?: "REVOKED" | "SUSPENDED";
+}
 export interface WalletConnectProvider extends RgbProvider {
   readonly topic: string;
   readonly chainId: string;
   disconnect(): Promise<void>;
+  /** Authorization availability, not relay connectivity or permission revocation.
+   * Temporary suspension may recover through enable or a read-only handshake.
+   * Info is supplied only after a validated getInfo response, never from a cache.
+   */
+  subscribeAvailability(listener: (state: WalletConnectAvailability) => void): () => void;
   /** Remove this adapter's listeners; leave the session available for restoration. */
   dispose(): void;
 }
@@ -106,6 +125,8 @@ export interface WalletConnectProviderOptions {
   client: WalletConnectClient;
   topic: string;
   network: string;
+  /** Read/enable deadline (default 30000ms, max 120000ms). Never retries mutations. */
+  requestTimeoutMs?: number;
 }
 /** Reattach to a stored session. Call enable() before using wallet methods. */
 export declare function createWalletConnectProvider(

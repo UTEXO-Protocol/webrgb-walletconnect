@@ -1,3 +1,13 @@
+## Unreleased
+
+- Revalidate explicit enable handshakes and recover one rejected read after a
+  wallet runtime resumes, without replaying transactions or invoice creation.
+- Guard late responses with session identity/revision checks and expose
+  authorization availability subscriptions to connection UI.
+- Revalidate wallet backend grants on every enable handshake.
+- Reject stale relay-generation readiness and offline handshakes while retaining
+  the original result of an already dispatched financial request.
+
 # Changelog
 
 All notable changes to `@utexo/webrgb-walletconnect` are documented here.

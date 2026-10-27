@@ -112,3 +112,38 @@ JSON-RPC IDs with unchanged arguments reuse the result while that wallet
 adapter is alive and the request has not expired. This is not a guarantee
 across restarts: reconcile a timed-out burn using wallet history. No separate
 `requestId` field is added to `burnAsset`.
+
+
+## Runtime resumption and authorization availability
+
+A stored WalletConnect topic authorizes neither an awake runtime nor a financial
+operation. The dApp adapter MUST send a real `rgb_enable` handshake for explicit
+`enable()` calls, coalescing concurrent handshakes for that provider. The wallet
+MUST revalidate its current durable grant on every enable, even if that runtime
+has already enabled the session.
+
+A previously enabled provider MAY recover one `NOT_ENABLED` read with one enable
+and one repeated read. Only the documented read allowlist is eligible. It MUST
+NOT replay financial operations, address/invoice allocation or message signing;
+interrupted financial calls retain their original identities and require the
+wallet's journal/recovery flow. A timeout is not proof that a mutation failed.
+
+`NOT_ENABLED` keeps the existing numeric JSON-RPC code and string `error.data`.
+Wallets MAY attach `error.authorization: "SUSPENDED" | "REVOKED"`. SUSPENDED
+means temporary runtime/lock availability; REVOKED is reserved for a definite
+invalid durable grant/session. A malformed individual request MUST NOT turn a
+valid session into a permanently revoked grant. Unclassified NOT_ENABLED errors
+MUST NOT be assumed permanent. Read recovery MUST stop on explicit REVOKED.
+
+Adapters MUST reject stale enable/read callbacks after disposal, identity change
+or authorization revision replacement. Local account, network, profile, expiry,
+origin and per-method namespace checks remain mandatory before and after RPCs.
+Core relay disconnect/stall/close events invalidate cached availability; a relay
+reconnect may perform one coalesced enable/info check, with no financial RPC.
+Readiness responses and deadlines from an earlier relay generation MUST NOT
+authorize or overwrite readiness for the current connection. Known-offline
+adapters MUST NOT queue new handshakes/reads. Relay availability is separate from
+session authority: an already dispatched financial request keeps its original
+identity/result and MUST NOT be replayed merely because the relay reconnects.
+Availability observers receive readiness only from validated getInfo responses;
+they MUST NOT create a recursive polling/retry loop.
