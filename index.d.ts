@@ -125,7 +125,10 @@ export interface WalletConnectProviderOptions {
   client: WalletConnectClient;
   topic: string;
   network: string;
-  /** Read/enable deadline (default 30000ms, max 120000ms). Never retries mutations. */
+  /** Automatic-read/enable deadline (default 30000ms, max 120000ms).
+   * Interactive proof disclosure retains the WalletConnect request expiry.
+   * This local wait deadline does not cancel a remote request or retry mutations.
+   */
   requestTimeoutMs?: number;
 }
 /** Reattach to a stored session. Call enable() before using wallet methods. */

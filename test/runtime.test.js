@@ -954,6 +954,33 @@ describe("WalletConnect transport", () => {
     assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_burnAsset").length, 1);
   });
 
+  it("waits for interactive proof approval beyond the automatic-read deadline", async (t) => {
+    const f = await fixture(t), old = await f.connect();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 20 });
+    t.after(() => provider.dispose());
+    await provider.enable();
+    const approval = deferred(), entered = deferred(), original = f.backend.getConsignment;
+    f.backend.getConsignment = async () => { entered.resolve(); await approval.promise; return original(); };
+    let outcome;
+    const pending = provider.getConsignment({ assetId, txid }).then(
+      (value) => { outcome = { value }; }, (error) => { outcome = { error }; },
+    );
+    await entered.promise;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const whileAwaitingApproval = outcome;
+    const enabledWhileAwaitingApproval = provider.enabled;
+    approval.resolve();
+    await pending;
+    assert.equal(whileAwaitingApproval, undefined, "a privacy prompt is not an automatic readiness read");
+    assert.equal(enabledWhileAwaitingApproval, true);
+    assert.equal(outcome.error, undefined);
+    assert.deepEqual(outcome.value, f.proof);
+    assert.equal(f.counts.proof, 1);
+    assert.equal(f.counts.enable, 1, "waiting for privacy approval must not queue another enable");
+    assert.equal((await provider.getInfo()).ready, true);
+  });
+
   it("marks relay loss temporary and rechecks readiness once on reconnect without replaying work", async (t) => {
     const f = await fixture(t), provider = await f.connect();
     await provider.enable();

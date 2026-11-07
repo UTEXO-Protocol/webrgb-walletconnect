@@ -114,10 +114,13 @@ wallet classification, while `"SUSPENDED"` is temporary. Generic `NOT_ENABLED`
 errors do not imply revocation. The JSON-RPC numeric code and `data` string remain
 backwards compatible; `authorization` is an optional error extension.
 
-Read/enable calls have a 30-second deadline (`requestTimeoutMs`, maximum 120
-seconds). A timeout invalidates cached availability and does not retry a call.
-Financial requests retain their original transport lifetime and are never
-replayed.
+Automatic reads and enable calls have a 30-second local wait deadline
+(`requestTimeoutMs`, maximum 120 seconds). A timeout invalidates cached
+availability and does not retry or cancel the remote call. WalletConnect's
+request expiry still bounds that call. `getConsignment` may require a privacy
+approval, so it retains the interactive request lifetime instead of the short
+read deadline. Lock, session expiry and revocation still invalidate authorization.
+Financial requests retain their original transport lifetime and are never replayed.
 
 Relay loss invalidates replies and deadlines from earlier readiness handshakes
 and reads. New handshakes/reads fail while the relay is known offline; retry after

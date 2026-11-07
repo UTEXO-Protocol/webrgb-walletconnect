@@ -226,6 +226,12 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
     const expected = revision;
     const expectedRelay = relayGeneration;
     const readiness = method === "enable" || RESUMABLE_READS.has(method);
+    // Proof disclosure requires a privacy approval. Its read-only nature allows
+    // bounded NOT_ENABLED recovery, but does not make it an automatic read.
+    // A local readiness timeout cannot cancel a WalletConnect request: applying
+    // it here would abandon a live prompt and queue re-enable behind that prompt.
+    // Interactive requests retain the SDK's wire expiry and wallet lifecycle.
+    const automaticRead = readiness && method !== "getConsignment";
     if (!current().methods.has(wire(method)))
       throw fail(`${method} was not approved`, "METHOD_NOT_SUPPORTED");
     try {
@@ -234,7 +240,7 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
       let timer;
       let result;
       try {
-        result = await (method === "enable" || RESUMABLE_READS.has(method)
+        result = await (automaticRead
           ? Promise.race([remote, new Promise((_, reject) => {
             timer = setTimeout(() => {
               if (expectedRelay === relayGeneration) setEnabled(false);

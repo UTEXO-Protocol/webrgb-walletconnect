@@ -7,6 +7,8 @@
 - Revalidate wallet backend grants on every enable handshake.
 - Reject stale relay-generation readiness and offline handshakes while retaining
   the original result of an already dispatched financial request.
+- Keep privacy-approved consignment disclosure on the WalletConnect request
+  lifetime, so a short automatic-read deadline cannot abandon its live prompt.
 
 # Changelog
 
