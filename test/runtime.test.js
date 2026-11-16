@@ -212,6 +212,7 @@ async function fixture(t, overrides = {}, connectOptions = {}) {
       "witnessReceive",
       "burnAsset",
       "getConsignment",
+      "getReceivedMint",
       "listAssets",
       "listTransfers",
     ],
@@ -1414,4 +1415,167 @@ describe("WalletConnect transport", () => {
     await f.connection.cancel();
     await assert.rejects(f.connection.approval(), code("USER_REJECTED"));
   });
+});
+
+
+const mintInvoice = "rgb:owned-invoice?pk=abc&expiry=2000000000";
+const mintResult = {
+  invoice: mintInvoice, recipientId: "utxob:owned", assetId, network, txid,
+  opid: "12".repeat(32), lockId: "34".repeat(32), amount: "9007199254740993",
+  beforeBlock: "20000000", evmChainId: "42161", bridgeContract: `0x${"56".repeat(20)}`,
+};
+
+describe("invoice-scoped received mint", () => {
+  it("round-trips exact commitment integers and explicit pending over JSON", async (t) => {
+    const f = await fixture(t);
+    let received = null;
+    f.backend.getReceivedMint = async (args) => { assert.deepEqual(args, { invoice: mintInvoice }); return received; };
+    const provider = await f.connect();
+    await provider.enable();
+    assert.ok((await provider.getInfo()).methods.includes("getReceivedMint"));
+    assert.equal(await provider.getReceivedMint({ invoice: mintInvoice }), null);
+    received = mintResult;
+    assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), mintResult);
+    assert.deepEqual(f.bus.calls.at(-1).params.request.params, [{ invoice: mintInvoice }]);
+    assert.equal(f.counts.burn, 0);
+    assert.equal(f.counts.receive, 0);
+  });
+
+  it("rejects recipient-only and ambiguous inputs before requesting native work", async (t) => {
+    const f = await fixture(t);
+    let calls = 0;
+    f.backend.getReceivedMint = async () => { calls++; return mintResult; };
+    const provider = await f.connect();
+    await provider.enable();
+    for (const args of [null, mintInvoice, {}, [], { recipientId: "utxob:owned" },
+      { invoice: mintInvoice, assetId }, { invoice: "rgb:" }, { invoice: "rgb:space test" },
+      { invoice: `rgb:${"x".repeat(8192)}` }]) {
+      await assert.rejects(provider.getReceivedMint(args), code("INVALID_PARAMS"));
+      await assert.rejects(f.bus.dapp.request({ topic: provider.topic, chainId: provider.chainId,
+        request: { method: "rgb_getReceivedMint", params: [args] } }), (error) => error.data === "INVALID_PARAMS");
+    }
+    for (const params of [[], [{ invoice: mintInvoice }, {}]]) {
+      await assert.rejects(f.bus.dapp.request({ topic: provider.topic, chainId: provider.chainId,
+        request: { method: "rgb_getReceivedMint", params } }), (error) => error.data === "INVALID_PARAMS");
+    }
+    assert.equal(calls, 0);
+  });
+
+  it("rejects malformed, mismatched and missing results instead of treating them as pending", async (t) => {
+    const f = await fixture(t);
+    let value;
+    f.backend.getReceivedMint = async () => value;
+    const provider = await f.connect();
+    await provider.enable();
+    for (value of [undefined, {}, { ...mintResult, invoice: "rgb:foreign" },
+      { ...mintResult, network: "signet" }, { ...mintResult, assetId: "" },
+      { ...mintResult, recipientId: "" }, { ...mintResult, txid: "wrong" },
+      { ...mintResult, lockId: "0x" + mintResult.lockId }, { ...mintResult, opid: null },
+      { ...mintResult, amount: 9007199254740992 }, { ...mintResult, amount: "01" },
+      { ...mintResult, amount: "18446744073709551616" }, { ...mintResult, amount: "0" },
+      { ...mintResult, beforeBlock: "-1" }, { ...mintResult, evmChainId: "0" },
+      { ...mintResult, bridgeContract: "0x00" }]) {
+      await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
+    }
+    // A malformed peer cannot bypass the wallet adapter's checks by writing a raw response.
+    f.bus.dapp.request = async () => ({ ...mintResult, invoice: "rgb:other" });
+    await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
+  });
+
+  it("preserves validation and authorization errors without pending fallback or retries", async (t) => {
+    const f = await fixture(t);
+    let calls = 0, failure;
+    f.backend.getReceivedMint = async () => { calls++; throw failure; };
+    const provider = await f.connect();
+    await provider.enable();
+    for (const error of ["INVALID_PARAMS", "ASSET_NOT_FOUND", "INTERNAL_ERROR", "USER_REJECTED"]) {
+      failure = Object.assign(new Error("Wallet rejected mint"), { code: error });
+      const before = calls;
+      await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code(error));
+      assert.equal(calls, before + 1);
+    }
+    failure = Object.assign(new Error("Revoked"), { code: "NOT_ENABLED", authorization: "REVOKED" });
+    const before = calls, enables = f.counts.enable;
+    await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), (error) => error.authorization === "REVOKED");
+    assert.equal(calls, before + 1);
+    assert.equal(f.counts.enable, enables);
+  });
+
+  it("resumes the real wallet adapter once without creating invoices or replaying burns", async (t) => {
+    const f = await fixture(t);
+    let reads = 0;
+    f.backend.getReceivedMint = async () => { reads++; return mintResult; };
+    const provider = await f.connect();
+    await provider.enable();
+    f.host.dispose();
+    const resumed = createWalletConnectWallet(f.options);
+    t.after(() => resumed.dispose());
+    assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), mintResult);
+    assert.equal(reads, 1);
+    assert.deepEqual(f.bus.calls.slice(-3).map((event) => event.params.request.method),
+      ["rgb_getReceivedMint", "rgb_enable", "rgb_getReceivedMint"]);
+    assert.equal(f.counts.receive, 0);
+    assert.equal(f.counts.burn, 0);
+  });
+
+  it("does not advertise a missing backend or serve a method outside the approved grant", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    assert.equal((await provider.getInfo()).methods.includes("getReceivedMint"), false);
+    await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("METHOD_NOT_SUPPORTED"));
+    f.backend.getReceivedMint = async () => mintResult;
+    for (const client of [f.bus.dapp, f.bus.wallet]) {
+      const session = client.session.get(provider.topic);
+      for (const namespace of Object.values(session.namespaces)) {
+        namespace.methods = namespace.methods.filter((method) => method !== "rgb_getReceivedMint");
+      }
+    }
+    await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("METHOD_NOT_SUPPORTED"));
+  });
+
+  it("captures the original invoice and rejects a response after account replacement", async (t) => {
+    const f = await fixture(t), pending = deferred();
+    f.backend.getReceivedMint = async (args) => { assert.equal(args.invoice, mintInvoice); await pending.promise; return mintResult; };
+    const provider = await f.connect();
+    await provider.enable();
+    const args = { invoice: mintInvoice }, result = provider.getReceivedMint(args);
+    args.invoice = "rgb:changed";
+    await tick();
+    f.bus.dapp.session.get(provider.topic).namespaces.rgb.accounts = [`rgb:${network}:different-wallet`];
+    pending.resolve();
+    await assert.rejects(result, code("NOT_ENABLED"));
+  });
+
+  it("bounds a slow mint read without replaying it or converting its timeout to null", async (t) => {
+    const f = await fixture(t), pending = deferred();
+    let calls = 0;
+    f.backend.getReceivedMint = async () => { calls++; await pending.promise; return mintResult; };
+    const old = await f.connect();
+    old.dispose();
+    const provider = createWalletConnectProvider({ client: f.bus.dapp, topic: old.topic, network, requestTimeoutMs: 5 });
+    t.after(() => provider.dispose());
+    await provider.enable();
+    await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
+    assert.equal(calls, 1);
+    pending.resolve();
+    await tick();
+    assert.equal(calls, 1);
+    assert.equal(provider.enabled, false);
+  });
+});
+
+
+it("requires the configured transport network on received mint results, including utexo aliases", async (t) => {
+  const f = await fixture(t, { network: "utexo" }, { network: "utexo" });
+  let projectAlias = true;
+  f.backend.getInfo = async () => ({ ready: true, network: "utexo", protocol: "RGB_L1",
+    methods: ["enable", "getInfo", "getReceivedMint"] });
+  // The application validates its native Signet profile before projecting only
+  // the network label. Generic transport never aliases arbitrary peer results.
+  f.backend.getReceivedMint = async () => ({ ...mintResult, network: projectAlias ? "utexo" : "signet" });
+  const provider = await f.connect();
+  await provider.enable();
+  assert.equal((await provider.getReceivedMint({ invoice: mintInvoice })).network, "utexo");
+  projectAlias = false;
+  await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
 });

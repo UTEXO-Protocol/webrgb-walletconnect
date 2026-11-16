@@ -48,6 +48,27 @@ or `[]` when omitted. Arguments and the invoice result pass through unchanged.
 `getInfo().burnRecipientNamespaces` pass through unchanged. Payout chain IDs
 are method arguments; the session still uses `rgb:<network>`.
 
+`getReceivedMint({ invoice })` maps to `rgb_getReceivedMint` with params
+`[{ invoice }]`. It is optional and must be included in both the approved
+namespace and `getInfo().methods`. The full invoice is the only argument;
+recipient-only queries and caller-supplied asset or settlement fields are rejected.
+The result contains `invoice`, `recipientId`, `assetId`, `network`, `txid`, `opid`,
+`lockId`, `amount`, `beforeBlock`, `evmChainId` and `bridgeContract`, or explicit
+`null` while no validated mint is ready. Integer fields are canonical decimal
+strings. The invoice and network must match the request and session exactly.
+Applications using a network alias must validate the native network and project
+the result through the same trusted adapter as `getInfo`; this transport does
+not treat different chain names as interchangeable.
+
+The wallet must establish invoice ownership and validate the consignment's asset,
+amount, destination and deadline. Transport shape checks cannot establish those
+facts. Validation or authorization failures reject instead of returning `null`.
+This method can refresh receive state but cannot create an invoice or spend. It
+uses the bounded read deadline and may recover one `NOT_ENABLED` read through an
+enable handshake, preserving the exact invoice. A timeout, validation failure or
+revocation is not retried. No burn, send or payment is part of recovery. Callers
+must revalidate before deposit and discard results after identity/session changes.
+
 ## 2. Consignment transfer
 
 `provider.getConsignment({ assetId, txid })` returns the complete

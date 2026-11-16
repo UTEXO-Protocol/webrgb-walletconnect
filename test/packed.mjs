@@ -20,6 +20,7 @@ try {
     "index.js",
     "index.d.ts",
     "walletconnect-proof.js",
+    "walletconnect-mint.js",
     "INTEGRATION.md",
     "SPEC.md",
     "LICENSE",
@@ -50,6 +51,7 @@ try {
     const core = await import("@utexo/webrgb");
     assert.ok(core.RGB_ERROR_CODES.includes("NOT_ENABLED"));
     assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("signMessage"));
+    assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("getReceivedMint"));
   `,
     ],
     { cwd: dir, stdio: "inherit" },

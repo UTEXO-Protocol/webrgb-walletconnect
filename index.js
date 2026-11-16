@@ -6,6 +6,7 @@ import {
   parseExpirerTarget,
 } from "@walletconnect/utils";
 import { RGB_ERROR_CODES } from "@utexo/webrgb";
+import { receivedMintArgs, receivedMintResult } from "./walletconnect-mint.js";
 import {
   CHUNK_BYTES,
   MAX_BYTES,
@@ -35,6 +36,7 @@ export const RGB_WALLETCONNECT_METHODS = Object.freeze([
   "payLnInvoice",
   "burnAsset",
   "getConsignment",
+  "getReceivedMint",
 ]);
 const EVENTS = ["transferReceived", "transferSettled"];
 // These operations cannot allocate an invoice/address, sign or spend. A single
@@ -42,6 +44,7 @@ const EVENTS = ["transferReceived", "transferSettled"];
 const RESUMABLE_READS = new Set([
   "getInfo", "listAssets", "getAssetBalance", "listTransfers",
   "getTransferStatus", "decodeRgbInvoice", "getConsignment",
+  "getReceivedMint",
 ]);
 const PROFILE = { webrgb: RGB_WALLETCONNECT_PROFILE };
 const DISCONNECT = getSdkError("USER_DISCONNECTED");
@@ -412,6 +415,10 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
     async getConsignment(/** @type {import("@utexo/webrgb").RgbGetConsignmentArgs} */ args) {
       proofArgs(args);
       return receiveProof(args, (part) => request("getConsignment", [part]));
+    },
+    async getReceivedMint(/** @type {import("@utexo/webrgb").RgbGetReceivedMintArgs} */ args) {
+      const checked = receivedMintArgs(args);
+      return request("getReceivedMint", [checked], (value) => receivedMintResult(value, checked, network));
     },
     on(
       /** @type {import("@utexo/webrgb").RgbEvent} */ event,
@@ -885,6 +892,9 @@ export function createWalletConnectWallet(options) {
       result.methods = result.methods.filter(
         (/** @type {string} */ m) => typeof provider[m] === "function",
       );
+    } else if (method === "getReceivedMint") {
+      const checked = receivedMintArgs(args[0]);
+      result = receivedMintResult(await provider.getReceivedMint(checked), checked, network);
     } else if (method === "getConsignment") {
       const part = args[0];
       proofArgs(part);

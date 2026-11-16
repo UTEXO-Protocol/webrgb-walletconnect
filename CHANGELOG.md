@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Add optional invoice-scoped received mint reads with exact JSON commitments,
+  live grants, strict request/result checks and bounded read-only resumption.
+
 - Revalidate explicit enable handshakes and recover one rejected read after a
   wallet runtime resumes, without replaying transactions or invoice creation.
 - Guard late responses with session identity/revision checks and expose

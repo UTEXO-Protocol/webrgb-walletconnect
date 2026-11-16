@@ -20,7 +20,7 @@ async function useWalletConnect(
     client,
     network: "regtest",
     methods: ["blindReceive", "witnessReceive"],
-    optionalMethods: ["signMessage"],
+    optionalMethods: ["signMessage", "getReceivedMint"],
   });
   const remote: WalletConnectProvider = await connection.approval();
   await remote.enable();
@@ -28,6 +28,12 @@ async function useWalletConnect(
   const { invoice } = await remote.witnessReceive({ assetId: "rgb:a", amount: 5 });
   invoice.toUpperCase();
   await remote.witnessReceive();
+  if (supports(await remote.getInfo(), "getReceivedMint") && remote.getReceivedMint) {
+    const mint = await remote.getReceivedMint({ invoice });
+    if (mint !== null) BigInt(mint.amount);
+    // @ts-expect-error recipient-only lookup is not the invoice-scoped method
+    await remote.getReceivedMint({ recipientId: "utxob:seal" });
+  }
   if ((await remote.getInfo()).methods.includes("signMessage") && remote.signMessage) {
     const signed: RgbSignMessageResult = await remote.signMessage("  test message\n");
     signed.signature.toUpperCase();
