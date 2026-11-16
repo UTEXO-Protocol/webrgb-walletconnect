@@ -67,7 +67,7 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/1d682e04b76832643261f0b214c49d0ebf7d3181/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/63d884a1b133abe193184cf62586b0bcd00551a9/SPEC.md).
 
 The application supplies `@utexo/webrgb` as a peer dependency, so both packages
 share one contract. This candidate pins the WebRGB commit above for development;
@@ -80,6 +80,10 @@ To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
 `getInfo().methods` includes it and `receivedMintVerificationVersion` is `1`.
 The wallet must implement native invoice ownership and mint validation. A `null`
 result means the proof is still pending; validation or authorization errors reject.
+Stock RGB may retain a previously checked mint while its lock is pending. A new
+read is not proof of a newly checked reject list or current EVM connectivity.
+The dApp must compare all mint terms and independently check the current EVM
+chain, lock contract and exclusive block deadline before paying.
 
 An application or wallet upgrade does not add permissions to an existing session.
 If its approved namespace lacks `rgb_getReceivedMint`, request a new session and

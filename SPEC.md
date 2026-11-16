@@ -68,7 +68,14 @@ WalletConnect namespace update; the adapter does not initiate such an update.
 The wallet must establish invoice ownership and validate the consignment's asset,
 amount, destination and deadline. Transport shape checks cannot establish those
 facts. Validation or authorization failures reject instead of returning `null`.
-This method can refresh receive state but cannot create an invoice or spend. It
+Stock RGB can retain a checked mint across later reject-list changes so its lock
+can complete. Refreshing that receipt does not promise a new check of every
+time-dependent rule or current EVM connectivity. The payment application must
+independently verify the current lock chain, contract and exclusive block deadline.
+
+This method can progress incoming receipts, including ordinary delivery of an
+already signed incoming transaction. It cannot create an invoice, initiate or
+replay an outgoing send/burn, or approve or pay an EVM deposit. It
 uses the bounded read deadline and may recover one `NOT_ENABLED` read through an
 enable handshake, preserving the exact invoice. A timeout, validation failure or
 revocation is not retried. No burn, send or payment is part of recovery. Callers

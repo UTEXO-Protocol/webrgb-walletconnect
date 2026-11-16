@@ -40,7 +40,7 @@
     "@arethetypeswrong/cli": "^0.18.2",
     "@reown/walletkit": "^1.6.0",
     "@types/node": "^20.19.43",
-    "@utexo/webrgb": "github:UTEXO-Protocol/webrgb#1d682e04b76832643261f0b214c49d0ebf7d3181",
+    "@utexo/webrgb": "github:UTEXO-Protocol/webrgb#63d884a1b133abe193184cf62586b0bcd00551a9",
     "@walletconnect/jsonrpc-utils": "1.0.8",
     "@walletconnect/sign-client": "^2.25.0",
     "publint": "^0.3.14",
