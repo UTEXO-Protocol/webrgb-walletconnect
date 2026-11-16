@@ -43,5 +43,10 @@ export function receivedMintResult(value, args, network) {
       typeof value.bridgeContract !== "string" || !/^0x[0-9a-f]{40}$/.test(value.bridgeContract)) {
     throw fail("Wallet returned an invalid received mint commitment", "INTERNAL_ERROR");
   }
-  return value;
+  // Only the negotiated public commitment crosses the boundary. Native debug
+  // fields, proof storage paths and future internal fields are not wire data.
+  const { invoice, recipientId, assetId, network: resultNetwork, txid, opid, lockId,
+    amount, beforeBlock, evmChainId, bridgeContract } = value;
+  return { invoice, recipientId, assetId, network: resultNetwork, txid, opid, lockId,
+    amount, beforeBlock, evmChainId, bridgeContract };
 }

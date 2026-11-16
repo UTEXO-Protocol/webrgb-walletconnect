@@ -1434,7 +1434,7 @@ describe("invoice-scoped received mint", () => {
     await provider.enable();
     assert.ok((await provider.getInfo()).methods.includes("getReceivedMint"));
     assert.equal(await provider.getReceivedMint({ invoice: mintInvoice }), null);
-    received = mintResult;
+    received = { ...mintResult, internalProofPath: "/private/wallet/proof", diagnostic: "not wire data" };
     assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), mintResult);
     assert.deepEqual(f.bus.calls.at(-1).params.request.params, [{ invoice: mintInvoice }]);
     assert.equal(f.counts.burn, 0);
