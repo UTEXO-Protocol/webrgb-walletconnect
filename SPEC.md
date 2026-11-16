@@ -60,6 +60,11 @@ Applications using a network alias must validate the native network and project
 the result through the same trusted adapter as `getInfo`; this transport does
 not treat different chain names as interchangeable.
 
+Existing sessions keep their approved method set after a software upgrade.
+Neither `enable()` nor automatic read recovery adds `rgb_getReceivedMint` to it.
+A missing permission requires a newly approved session or an explicitly approved
+WalletConnect namespace update; the adapter does not initiate such an update.
+
 The wallet must establish invoice ownership and validate the consignment's asset,
 amount, destination and deadline. Transport shape checks cannot establish those
 facts. Validation or authorization failures reject instead of returning `null`.
