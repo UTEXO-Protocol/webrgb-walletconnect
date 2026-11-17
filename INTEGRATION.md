@@ -68,7 +68,7 @@ validation failures reject. Wallets must allow polling an owned invoice after
 lacks the method, request a new session or get approval for a namespace update.
 
 If a dApp also uses an older injected browser provider with a recipient-only
-method, follow the [WebRGB legacy provider guidance](https://github.com/UTEXO-Protocol/webrgb/blob/0efeeac4796ea8859900618f96858603a415e094/INTEGRATION.md#legacy-browser-providers).
+method, follow the [WebRGB legacy provider guidance](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/INTEGRATION.md#legacy-browser-providers).
 
 Stock BFA.8 can retain a checked receipt across a later reject-list change
 while its lock is pending. Compare the receipt's asset, net RGB amount, lock
@@ -116,7 +116,7 @@ if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/0efeeac4796ea8859900618f96858603a415e094/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.

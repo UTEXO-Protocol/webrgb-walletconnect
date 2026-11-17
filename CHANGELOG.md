@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Require `@utexo/webrgb@^0.1.5` for the optional witness transaction ID contract.
+  Use published `@utexo/webrgb@0.1.5` for development and package validation.
 
 ### Added
 
