@@ -58,8 +58,8 @@ const wallet = createWalletConnectWallet({
 await wallet.pair(scannedUri);
 ```
 
-Connection approval grants access. The wallet still confirms each operation
-according to WebRGB and checks `context.assertAuthorized()` after confirmation.
+Connection approval grants access. The wallet follows WebRGB's per-method consent
+rules and checks `context.assertAuthorized()` after any confirmation.
 The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 
 ## Protocol and core dependency
@@ -67,10 +67,31 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/4b04e78f55e9808ee491ef2510fd9eb8c006cbe5/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md).
 
-The application supplies `@utexo/webrgb` (^0.1.4) as a peer dependency, so both packages
-share one contract. Development uses the published `0.1.4` package.
+The application supplies `@utexo/webrgb@^0.1.5` as a peer dependency, so both
+packages share the contract with an optional received-mint `txid`. Development
+and validation use the published `@utexo/webrgb@0.1.5` package from npm.
+
+### Received-mint reads and existing sessions
+
+To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
+`optionalMethods` when connecting. After approval, call `enable()` and check that
+`getInfo().methods` includes it and that the function exists on the provider.
+Polling an owned invoice needs no additional consent prompt. A `null` result
+means the proof is still pending. A checked receipt may omit `txid` before
+payment; do not treat its absence as pending. Use an asset-specific invoice.
+Validation and authorization errors reject.
+See [the mint integration guide](./INTEGRATION.md#checking-a-prepared-mint) for
+the checks a dApp must make before paying the deposit.
+
+An application or wallet upgrade does not add permissions to an existing session.
+If its approved namespace lacks `rgb_getReceivedMint`, request a new session and
+obtain the user's approval. Applications that implement WalletConnect session
+updates can instead obtain explicit approval for the additional permission before
+updating the namespace. This adapter does not expand grants during `enable()` or
+read recovery. Both the session grant and the wallet capability must allow the
+method. Reconnecting must not automatically resubmit a deposit, send or burn.
 
 ## Development
 
@@ -84,3 +105,51 @@ npm run test:packed
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the project layout and checks.
 Runtime tests exercise the dApp/wallet boundary without a relay. Live relay
 and mobile testing are still pending.
+
+
+### Resuming a wallet runtime
+
+`enable()` performs a real, coalesced wallet authorization handshake every time it
+is explicitly called. Call it before starting a new transaction or allocating a
+receive invoice. A cached `enabled` value does not prove that the wallet is awake,
+unlocked or connected to the relay.
+
+After a previously enabled wallet runtime restarts, read-only calls can recover
+one `NOT_ENABLED` reply with one enable handshake and one repeated read. The
+allowlist is `getInfo`, `listAssets`, `getAssetBalance`, `listTransfers`,
+`getTransferStatus`, `decodeRgbInvoice`, `getReceivedMint`, and `getConsignment`. Every handshake and
+request rechecks the current topic, expiry, profile, network, accounts, origin
+and method permissions. An account or wallet-origin change requires a new
+provider; late callbacks cannot enable a disposed/replaced provider.
+
+No address/invoice allocation, message signature, issuance, send, payment or burn
+is automatically replayed, including after a timeout or lost response. Retain
+financial request identities and use the wallet's operation/proof recovery flow
+when its outcome is uncertain. This transport does not add durable burn recovery
+across wallet process crashes.
+
+`subscribeAvailability(listener)` observes `{ enabled, info?, authorization? }`.
+`info` is emitted only after a validated `getInfo` response; observers do not
+trigger any additional request. `authorization: "REVOKED"` is an explicit terminal
+wallet classification, while `"SUSPENDED"` is temporary. Generic `NOT_ENABLED`
+errors do not imply revocation. The JSON-RPC numeric code and `data` string remain
+backwards compatible; `authorization` is an optional error extension.
+
+Automatic reads and enable calls have a 30-second local wait deadline
+(`requestTimeoutMs`, maximum 120 seconds). A timeout invalidates cached
+availability and does not retry or cancel the remote call. WalletConnect's
+request expiry still bounds that call. `getConsignment` may require a privacy
+approval, so it retains the interactive request lifetime instead of the short
+read deadline. Lock, session expiry and revocation still invalidate authorization.
+Financial requests retain their original transport lifetime and are never replayed.
+
+Relay loss invalidates replies and deadlines from earlier readiness handshakes
+and reads. New handshakes/reads fail while the relay is known offline; retry after
+reconnection. This does not discard an already dispatched financial
+result or create another transaction.
+
+Availability notifications describe authorization availability.
+A false value can mean temporary wallet suspension; it does not revoke the
+WalletConnect pairing. Keep a valid stored topic through temporary offline/locked
+states and retry a bounded read-only handshake when the user returns. Delete it
+on genuine session expiry/deletion, explicit disconnect or incompatible identity.

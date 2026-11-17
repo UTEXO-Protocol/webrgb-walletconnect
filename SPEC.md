@@ -8,7 +8,7 @@ See [INTEGRATION.md](./INTEGRATION.md) for usage.
 
 The `rgb` namespace, profile tag and consignment chunks below are experimental
 UTEXO protocol choices. They are not WalletConnect standards. Both ends must
-implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/4b04e78f55e9808ee491ef2510fd9eb8c006cbe5/SPEC.md).
+implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md).
 
 ## 1. Session
 
@@ -47,6 +47,48 @@ or `[]` when omitted. Arguments and the invoice result pass through unchanged.
 `burnAsset(args)` maps to `rgb_burnAsset`. `burnRecipient` and
 `getInfo().burnRecipientNamespaces` pass through unchanged. Payout chain IDs
 are method arguments; the session still uses `rgb:<network>`.
+
+### Received mint
+
+`getReceivedMint({ invoice })` maps to `rgb_getReceivedMint` with params
+`[{ invoice }]`. This optional method must be in the approved namespace and
+advertised in `getInfo().methods`. The dApp checks that the provider implements
+the method before calling it. The full, unchanged invoice is the only argument.
+Recipient-only queries and caller-supplied asset or settlement fields are invalid.
+The wallet MUST reject any-asset invoices with `INVALID_PARAMS`, as required
+by WebRGB; invoice decoding and proof-to-asset binding remain wallet checks.
+
+After `enable()`, polling an invoice owned by the active wallet account MUST
+require no additional consent prompt. The wallet must still verify invoice
+ownership and binding, and enforce the current origin, account, network and
+session permissions. Transport checks do not validate proof contents.
+
+The result is `RgbReceivedMint` from WebRGB, or explicit `null` while no validated
+mint is ready. Validation and authorization failures return errors. The
+`invoice` and `network` fields must match the request and session exactly,
+respectively. A wallet using a network alias validates the native network and
+projects the result to the same alias as `getInfo()`.
+`txid` is optional: a checked mint can be returned before the lock is paid,
+when transfer history may not yet name its witness transaction. If supplied,
+`txid` must be lowercase 64-character hex; `null` or malformed values reject.
+An omitted `txid` stays omitted on both sides of the JSON transport and does
+not make the entire result pending. The required `lockId` commits to it.
+
+Existing sessions keep their approved method set after a software upgrade.
+Neither `enable()` nor automatic read recovery adds `rgb_getReceivedMint` to it.
+A missing permission requires a newly approved session or an explicitly approved
+WalletConnect namespace update; the adapter does not initiate such an update.
+
+The method refreshes incoming state and can progress delivery of an already
+signed incoming transaction. It may return a previously validated receipt.
+The result does not establish a fresh check of every time-dependent rule or
+current EVM connectivity. It cannot create an invoice, initiate or replay an
+outgoing send or burn, or approve or pay an EVM deposit.
+
+The adapter uses the bounded read deadline and may recover one `NOT_ENABLED`
+read through an enable handshake, preserving the exact invoice. A timeout,
+validation failure or revocation is not retried. See
+[INTEGRATION.md](./INTEGRATION.md#checking-a-prepared-mint) for payment checks.
 
 ## 2. Consignment transfer
 
@@ -112,3 +154,38 @@ JSON-RPC IDs with unchanged arguments reuse the result while that wallet
 adapter is alive and the request has not expired. This is not a guarantee
 across restarts: reconcile a timed-out burn using wallet history. No separate
 `requestId` field is added to `burnAsset`.
+
+
+## Runtime resumption and authorization availability
+
+A stored WalletConnect topic authorizes neither an awake runtime nor a financial
+operation. The dApp adapter MUST send a real `rgb_enable` handshake for explicit
+`enable()` calls, coalescing concurrent handshakes for that provider. The wallet
+MUST revalidate its current durable grant on every enable, even if that runtime
+has already enabled the session.
+
+A previously enabled provider MAY recover one `NOT_ENABLED` read with one enable
+and one repeated read. Only the documented read allowlist is eligible. It MUST
+NOT replay financial operations, address/invoice allocation or message signing;
+interrupted financial calls retain their original identities and require the
+wallet's journal/recovery flow. A timeout is not proof that a mutation failed.
+
+`NOT_ENABLED` keeps the existing numeric JSON-RPC code and string `error.data`.
+Wallets MAY attach `error.authorization: "SUSPENDED" | "REVOKED"`. SUSPENDED
+means temporary runtime/lock availability; REVOKED is reserved for a definite
+invalid durable grant/session. A malformed individual request MUST NOT turn a
+valid session into a permanently revoked grant. Unclassified NOT_ENABLED errors
+MUST NOT be assumed permanent. Read recovery MUST stop on explicit REVOKED.
+
+Adapters MUST reject stale enable/read callbacks after disposal, identity change
+or authorization revision replacement. Local account, network, profile, expiry,
+origin and per-method namespace checks remain mandatory before and after RPCs.
+Core relay disconnect/stall/close events invalidate cached availability; a relay
+reconnect may perform one coalesced enable/info check, with no financial RPC.
+Readiness responses and deadlines from an earlier relay generation MUST NOT
+authorize or overwrite readiness for the current connection. Known-offline
+adapters MUST NOT queue new handshakes/reads. Relay availability is separate from
+session authority: an already dispatched financial request keeps its original
+identity/result and MUST NOT be replayed merely because the relay reconnects.
+Availability observers receive readiness only from validated getInfo responses;
+they MUST NOT create a recursive polling/retry loop.

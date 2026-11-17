@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Accept a checked `getReceivedMint` result without `txid` before lock payment;
+  validate it when present and preserve its absence through JSON and resumption.
+
+### Changed
+
+- Require `@utexo/webrgb@^0.1.5` for the optional witness transaction ID contract.
+  Use published `@utexo/webrgb@0.1.5` for development and package validation.
+
+### Added
+
+- Add optional invoice-scoped received mint reads with exact JSON commitments,
+  live grants, strict request/result checks and bounded read-only resumption.
+- Revalidate explicit enable handshakes and recover one rejected read after a
+  wallet runtime resumes, without replaying transactions or invoice creation.
+- Guard late responses with session identity/revision checks and expose
+  authorization availability subscriptions to connection UI.
+- Revalidate wallet backend grants on every enable handshake.
+- Reject stale relay-generation readiness and offline handshakes while retaining
+  the original result of an already dispatched financial request.
+- Keep privacy-approved consignment disclosure on the WalletConnect request
+  lifetime, so a short automatic-read deadline cannot abandon its live prompt.
+
 ## [0.1.4] - 2026-11-17
 
 ### Changed

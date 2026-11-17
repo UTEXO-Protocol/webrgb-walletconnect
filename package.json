@@ -1,6 +1,6 @@
 {
   "name": "@utexo/webrgb-walletconnect",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "WalletConnect transport for WebRGB dApps and wallets, using SignClient and WalletKit.",
   "license": "MIT",
   "type": "module",
@@ -17,6 +17,7 @@
     "index.js",
     "index.d.ts",
     "walletconnect-proof.js",
+    "walletconnect-mint.js",
     "README.md",
     "INTEGRATION.md",
     "SPEC.md",
@@ -39,10 +40,11 @@
     "@arethetypeswrong/cli": "^0.18.2",
     "@reown/walletkit": "^1.6.0",
     "@types/node": "^20.19.43",
+    "@utexo/webrgb": "0.1.5",
+    "@walletconnect/jsonrpc-utils": "1.0.8",
     "@walletconnect/sign-client": "^2.25.0",
     "publint": "^0.3.14",
-    "typescript": "^5.6.0",
-    "@utexo/webrgb": "0.1.4"
+    "typescript": "^5.6.0"
   },
   "engines": {
     "node": ">=20"
@@ -59,6 +61,6 @@
     "dapp"
   ],
   "peerDependencies": {
-    "@utexo/webrgb": "^0.1.4"
+    "@utexo/webrgb": "^0.1.5"
   }
 }
