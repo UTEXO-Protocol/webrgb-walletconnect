@@ -10,10 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Use the single `burnDestination` contract from WebRGB. Keep session profile
   `webrgb:1` and existing grants; reject legacy/mixed burn payloads before
-  delegation. Prepare `1.0.0-next.0` with the corresponding core peer dependency.
+  delegation.
 - Require `burnDestination.version: 1` in requests and results. Reject missing
   or unsupported request versions before delegation; invalid result versions
   retain transaction IDs for recovery and never trigger another burn.
+
+### Changed
+
+- Use published `@utexo/webrgb@0.1.6` for development and require `^0.1.6`
+  as the core peer dependency.
 
 ### Added
 

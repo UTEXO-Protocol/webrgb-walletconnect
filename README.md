@@ -11,13 +11,11 @@ storage, backend validation and user confirmations.
 
 ## Contract compatibility
 
-This draft accompanies [WebRGB PR #9](https://github.com/UTEXO-Protocol/webrgb/pull/9).
+Uses the published `@utexo/webrgb@0.1.6` contract.
 The `webrgb:1` session profile is unchanged. Burn now requires
 `burnDestination: { version: 1, chainId, address, dstEid }`; upgrade both peers
 for this contract. Existing session grants remain unchanged, and legacy burn
 payloads reject with `INVALID_PARAMS` before delegation.
-The development dependency is pinned to the core PR until its release; replace
-that pin with the published package before publishing this adapter.
 
 `createUtxos`, `getBtcBalance`, `refresh` and `getAssetMetadata` are optional.
 Request only needed methods and check the negotiated `getInfo().methods`.
@@ -80,9 +78,9 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental WebRGB `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/pull/9).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb).
 
-The application supplies `@utexo/webrgb@^1.0.0-next.0` as a peer dependency.
+The application supplies `@utexo/webrgb@^0.1.6` as a peer dependency.
 The received-mint contract is unchanged, including its optional `txid`.
 
 ### Received-mint reads and existing sessions

@@ -132,7 +132,7 @@ if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
 
 ## For wallet developers
 
-Implement the methods in the [WebRGB contract](https://github.com/UTEXO-Protocol/webrgb/pull/9) in your wallet app. For example,
+Implement the methods in the [WebRGB contract](https://github.com/UTEXO-Protocol/webrgb) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.
