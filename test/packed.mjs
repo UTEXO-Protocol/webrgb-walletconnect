@@ -52,6 +52,30 @@ try {
     assert.ok(core.RGB_ERROR_CODES.includes("NOT_ENABLED"));
     assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("signMessage"));
     assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("getReceivedMint"));
+    const receipt = {
+      invoice: "rgb:asset/~/bcrt:utxob:owned", recipientId: "bcrt:utxob:owned",
+      assetId: "rgb:asset", network: "regtest", opid: "a".repeat(64),
+      lockId: "b".repeat(64), amount: "9007199254740993", beforeBlock: "20000000",
+      evmChainId: "42161", bridgeContract: "0x" + "c".repeat(40),
+    };
+    const session = {
+      topic: "mint", expiry: Math.floor(Date.now() / 1000) + 600,
+      sessionProperties: { webrgb: adapter.RGB_WALLETCONNECT_PROFILE },
+      namespaces: { rgb: { accounts: ["rgb:regtest:wallet"],
+        methods: ["rgb_enable", "rgb_getReceivedMint"], events: [] } },
+      peer: { metadata: { url: "https://wallet.example" } },
+    };
+    const client = {
+      core: {}, session: { get: () => session }, on() {}, off() {},
+      request: async ({ request }) => request.method === "rgb_enable" ? null : receipt,
+    };
+    const provider = adapter.createWalletConnectProvider({ client, topic: "mint", network: "regtest" });
+    try {
+      await provider.enable();
+      const checked = await provider.getReceivedMint({ invoice: receipt.invoice });
+      assert.deepEqual(checked, receipt);
+      assert.equal(Object.hasOwn(checked, "txid"), false);
+    } finally { provider.dispose(); }
   `,
     ],
     { cwd: dir, stdio: "inherit" },

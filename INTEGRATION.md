@@ -45,8 +45,9 @@ a new asset; it is not used to receive an existing bridge asset.
 
 For a bridge that prepares a BFA mint before collecting the EVM deposit, add
 `"getReceivedMint"` to `optionalMethods` when connecting. After `enable()`,
-check the negotiated capability and the provider function. Read the receipt
-using the full invoice returned by the wallet:
+check the negotiated capability and the provider function. Create the invoice
+with the selected `assetId`; any-asset invoices reject with `INVALID_PARAMS`.
+Read the receipt using the full invoice returned by the wallet:
 
 ```ts
 import { supports } from "@utexo/webrgb";
@@ -58,13 +59,16 @@ if (!supports(info, "getReceivedMint") || !provider.getReceivedMint) {
 const mint = await provider.getReceivedMint({ invoice });
 ```
 
+`mint.txid` may be absent before the lock is paid. Do not wait for it before
+payment: compare the required `lockId` and the other validated terms below.
+
 A `null` result means the mint is pending and can be polled. Authorization and
 validation failures reject. Wallets must allow polling an owned invoice after
 `enable()` without a new consent prompt. If an existing WalletConnect session
 lacks the method, request a new session or get approval for a namespace update.
 
 If a dApp also uses an older injected browser provider with a recipient-only
-method, follow the [WebRGB legacy provider guidance](https://github.com/UTEXO-Protocol/webrgb/blob/b63f34b6a3ca69c25bc78b0f5a9358b43f1add7b/INTEGRATION.md#legacy-browser-providers).
+method, follow the [WebRGB legacy provider guidance](https://github.com/UTEXO-Protocol/webrgb/blob/0efeeac4796ea8859900618f96858603a415e094/INTEGRATION.md#legacy-browser-providers).
 
 Stock BFA.8 can retain a checked receipt across a later reject-list change
 while its lock is pending. Compare the receipt's asset, net RGB amount, lock
@@ -112,7 +116,7 @@ if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/b63f34b6a3ca69c25bc78b0f5a9358b43f1add7b/SPEC.md) in your wallet app. For example,
+Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/0efeeac4796ea8859900618f96858603a415e094/SPEC.md) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.

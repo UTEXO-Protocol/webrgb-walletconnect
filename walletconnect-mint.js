@@ -37,7 +37,8 @@ export function receivedMintResult(value, args, network) {
       typeof value.recipientId !== "string" || !value.recipientId || value.recipientId.length > 1024 ||
       typeof value.assetId !== "string" || !value.assetId.startsWith("rgb:") ||
       value.assetId.length <= 4 || value.assetId.length > 512 ||
-      ![value.txid, value.opid, value.lockId].every((id) => typeof id === "string" && hex.test(id)) ||
+      (value.txid !== undefined && (typeof value.txid !== "string" || !hex.test(value.txid))) ||
+      ![value.opid, value.lockId].every((id) => typeof id === "string" && hex.test(id)) ||
       ![value.amount, value.beforeBlock, value.evmChainId].every(decimal) ||
       value.amount === "0" || value.beforeBlock === "0" || value.evmChainId === "0" ||
       typeof value.bridgeContract !== "string" || !/^0x[0-9a-f]{40}$/.test(value.bridgeContract)) {
@@ -47,6 +48,7 @@ export function receivedMintResult(value, args, network) {
   // fields, proof storage paths and future internal fields are not wire data.
   const { invoice, recipientId, assetId, network: resultNetwork, txid, opid, lockId,
     amount, beforeBlock, evmChainId, bridgeContract } = value;
-  return { invoice, recipientId, assetId, network: resultNetwork, txid, opid, lockId,
+  return { invoice, recipientId, assetId, network: resultNetwork,
+    ...(txid !== undefined ? { txid } : {}), opid, lockId,
     amount, beforeBlock, evmChainId, bridgeContract };
 }
