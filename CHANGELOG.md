@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-17
+
+### Changed
+
+- Require `@utexo/webrgb@^0.1.4` as a peer and use `0.1.4` for development.
+
+## [0.1.3]
+
 ### Changed
 
 - Use published `@utexo/webrgb@0.1.3` and check burn recipient namespaces in

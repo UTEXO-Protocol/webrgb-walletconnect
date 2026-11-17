@@ -69,8 +69,8 @@ namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
 [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/4b04e78f55e9808ee491ef2510fd9eb8c006cbe5/SPEC.md).
 
-The application supplies `@utexo/webrgb` (^0.1.3) as a peer dependency, so both packages
-share one contract. Development uses the published `0.1.3` package.
+The application supplies `@utexo/webrgb` (^0.1.4) as a peer dependency, so both packages
+share one contract. Development uses the published `0.1.4` package.
 
 ## Development
 
