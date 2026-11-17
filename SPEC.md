@@ -49,9 +49,11 @@ obtains user approval for each signing request.
 or `[]` when omitted. Arguments and the invoice result pass through unchanged.
 
 `burnAsset(args)` maps to `rgb_burnAsset` with one positional argument.
-Requests and results carry `burnDestination: { chainId, address, dstEid }`.
-Both adapters check the request shape and network, reject legacy/mixed fields,
-and match the result's asset, exact amount and destination to the request.
+Requests and results carry `burnDestination: { version: 1, chainId, address, dstEid }`.
+Both adapters MUST reject missing or unsupported request versions with
+`INVALID_PARAMS` before delegation; no default or downgrade is allowed.
+They check the request shape and network, reject legacy/mixed fields, and match
+the result's asset, exact amount and destination (including version) to the request.
 The wallet validates native addresses, route support and the commitment before
 confirmation. The transport does not infer endpoints or compute commitments.
 `getInfo().burnRecipientNamespaces` passes through unchanged; payout chains

@@ -41,7 +41,7 @@
     "@arethetypeswrong/cli": "^0.18.2",
     "@reown/walletkit": "^1.6.0",
     "@types/node": "^20.19.43",
-    "@utexo/webrgb": "https://codeload.github.com/UTEXO-Protocol/webrgb/tar.gz/026fd71e7eb6de079faec3edeac3b66fba7fe9d0",
+    "@utexo/webrgb": "https://codeload.github.com/UTEXO-Protocol/webrgb/tar.gz/316679e109addd88aa7df54342331f6e3e9501f7",
     "@walletconnect/jsonrpc-utils": "1.0.8",
     "@walletconnect/sign-client": "^2.25.0",
     "publint": "^0.3.14",

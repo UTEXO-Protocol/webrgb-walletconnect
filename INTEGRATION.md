@@ -81,16 +81,17 @@ Upgrade both peers to the single-destination contract and establish a new
 `webrgb:2` session. Check capabilities before calling the optional methods:
 
 ```ts
-import { supports } from "@utexo/webrgb";
+import { supports, type RgbBurnAssetArgs } from "@utexo/webrgb";
 
 const info = await provider.getInfo();
 if (!supports(info, "burnAsset") || !supports(info, "getConsignment") ||
     !provider.burnAsset || !provider.getConsignment) {
   throw new Error("This wallet does not support BFA burn proofs");
 }
-const args = {
+const args: RgbBurnAssetArgs = {
   network: info.network, assetId, amount: "1000000",
   burnDestination: {
+    version: 1,
     chainId: "eip155:137",
     address: "0x1111111111111111111111111111111111111111",
     dstEid: 30109,

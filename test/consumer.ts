@@ -85,16 +85,24 @@ void walletClient;
 async function updatedContract(provider: WalletConnectProvider) {
   const args: RgbBurnAssetArgs = {
     network: "regtest", assetId: "rgb:asset", amount: "9007199254740993",
-    burnDestination: { chainId: "eip155:137", address: "0x" + "11".repeat(20), dstEid: 30109 },
+    burnDestination: { version: 1, chainId: "eip155:137", address: "0x" + "11".repeat(20), dstEid: 30109 },
   };
   if (provider.burnAsset) {
     const result = await provider.burnAsset(args);
     const destination: RgbBurnAssetArgs["burnDestination"] = result.burnDestination;
+    const version: 1 = destination.version;
+    void version;
     destination.dstEid.toFixed();
     // @ts-expect-error the old duplicate recipient is not part of the contract
     result.burnRecipient;
     // @ts-expect-error dstEid is required
-    await provider.burnAsset({ ...args, burnDestination: { chainId: "eip155:137", address: "0x1234" } });
+    await provider.burnAsset({ ...args, burnDestination: { version: 1, chainId: "eip155:137", address: "0x1234" } });
+    // @ts-expect-error version is required at the public transport boundary
+    await provider.burnAsset({ ...args, burnDestination: { chainId: "eip155:137", address: "0x1234", dstEid: 30109 } });
+    // @ts-expect-error unknown versions must not be accepted
+    await provider.burnAsset({ ...args, burnDestination: { ...args.burnDestination, version: 2 } });
+    // @ts-expect-error version must be a number, not a string
+    await provider.burnAsset({ ...args, burnDestination: { ...args.burnDestination, version: "1" } });
     // @ts-expect-error legacy requests must not be accepted by the new profile
     await provider.burnAsset({ network: "regtest", assetId: "rgb:asset", amount: "1", burnRecipient: args.burnDestination });
   }

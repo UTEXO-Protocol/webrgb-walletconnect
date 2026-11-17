@@ -11,13 +11,13 @@ const confirmations = (value) => Number.isInteger(value) && value >= 1 && value 
 
 /** @param {any} value @returns {import("@utexo/webrgb").RgbBurnDestination} */
 function destination(value) {
-  if (!object(value) || typeof value.chainId !== "string" ||
+  if (!object(value) || value.version !== 1 || typeof value.chainId !== "string" ||
       !/^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$/.test(value.chainId) || !text(value.address) ||
       !Number.isInteger(value.dstEid) || value.dstEid < 0 || value.dstEid > 0xffffffff ||
-      Object.keys(value).some((key) => !["chainId", "address", "dstEid"].includes(key))) {
-    throw fail("burnDestination must contain chainId, native address and a u32 dstEid", "INVALID_PARAMS");
+      Object.keys(value).some((key) => !["version", "chainId", "address", "dstEid"].includes(key))) {
+    throw fail("burnDestination requires version 1, chainId, native address and a u32 dstEid", "INVALID_PARAMS");
   }
-  return { chainId: value.chainId, address: value.address, dstEid: value.dstEid };
+  return { version: value.version, chainId: value.chainId, address: value.address, dstEid: value.dstEid };
 }
 
 /**
@@ -59,7 +59,8 @@ export function burnAssetResult(value, args) {
     const sameAddress = actual.address === expected.address ||
       (expected.chainId.startsWith("eip155:") && /^0x[0-9a-f]{40}$/i.test(expected.address) &&
         actual.address.toLowerCase() === expected.address.toLowerCase());
-    if (actual.chainId !== expected.chainId || actual.dstEid !== expected.dstEid || !sameAddress) throw new Error();
+    if (actual.version !== expected.version || actual.chainId !== expected.chainId ||
+        actual.dstEid !== expected.dstEid || !sameAddress) throw new Error();
     return {
       transferId: value.transferId, txid: value.txid, assetId: value.assetId, amount: value.amount,
       burnDestination: actual, status: value.status, minConfirmations: value.minConfirmations,

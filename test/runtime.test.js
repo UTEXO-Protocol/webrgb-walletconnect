@@ -26,7 +26,7 @@ const burnArgs = {
   network,
   assetId,
   amount: "5",
-  burnDestination: { chainId: "eip155:1", address: `0x${"56".repeat(20)}`, dstEid: 30101 },
+  burnDestination: { version: 1, chainId: "eip155:1", address: `0x${"56".repeat(20)}`, dstEid: 30101 },
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => {
@@ -392,8 +392,8 @@ describe("WalletConnect transport", () => {
     assert.deepEqual(Object.keys(f.bus.dapp.session.get(provider.topic).namespaces), ["rgb"]);
     const recipients = [
       burnArgs.burnDestination,
-      { chainId: "tron:728126428", address: "TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL", dstEid: 30420 },
-      { chainId: "cosmos:cosmoshub-4", address: "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0", dstEid: 1 },
+      { version: 1, chainId: "tron:728126428", address: "TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL", dstEid: 30420 },
+      { version: 1, chainId: "cosmos:cosmoshub-4", address: "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0", dstEid: 1 },
     ];
     for (const burnDestination of recipients) {
       const args = { ...burnArgs, burnDestination };
@@ -1666,7 +1666,7 @@ describe("single-destination burn profile", () => {
       { ...burnArgs, minConfirmations: 0 }, { ...burnArgs, minConfirmations: 256 },
       ...[
         { dstEid: undefined }, { dstEid: -1 }, { dstEid: 2 ** 32 }, { dstEid: 1.5 },
-        { chainId: "eip155" }, { address: "" }, { version: 1 },
+        { chainId: "eip155" }, { address: "" },
         { destinationChainId: 1 }, { recipient: "0x1234" },
       ].map((patch) => ({ ...burnArgs, burnDestination: { ...burnDestination, ...patch } })),
     ];
@@ -1685,6 +1685,26 @@ describe("single-destination burn profile", () => {
     assert.equal((await provider.getInfo()).ready, true);
   });
 
+  it("rejects absent and unsupported burn versions on both peers before delegation", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const { version, ...unversioned } = burnArgs.burnDestination;
+    for (const burnDestination of [
+      unversioned,
+      ...[undefined, null, "1", 0, 2, 1.5, true].map((version) => ({ ...burnArgs.burnDestination, version })),
+    ]) {
+      const args = { ...burnArgs, burnDestination }, requests = f.bus.calls.length;
+      await assert.rejects(provider.burnAsset(args), code("INVALID_PARAMS"));
+      assert.equal(f.bus.calls.length, requests, "invalid version must not reach the relay");
+      await assert.rejects(f.bus.dapp.request({ topic: provider.topic, chainId: `rgb:${network}`,
+        request: { method: "rgb_burnAsset", params: [args] } }), (error) => error.data === "INVALID_PARAMS");
+    }
+    assert.equal(f.counts.burn, 0);
+    const result = await provider.burnAsset(burnArgs);
+    assert.equal(result.burnDestination.version, 1);
+    assert.equal(f.counts.burn, 1);
+  });
+
   it("snapshots the caller's destination and preserves exact u64 amounts and direct payouts", async (t) => {
     const f = await fixture(t), provider = await f.connect();
     await provider.enable();
@@ -1692,6 +1712,7 @@ describe("single-destination burn profile", () => {
       burnDestination: { ...burnArgs.burnDestination, chainId: "eip155:42161", dstEid: 0 } };
     const expected = structuredClone(args), pending = provider.burnAsset(args);
     args.amount = "1";
+    args.burnDestination.version = 2;
     args.burnDestination.dstEid = 30110;
     const result = await pending;
     assert.equal(result.amount, expected.amount);
@@ -1722,11 +1743,14 @@ describe("single-destination burn profile", () => {
     const f = await fixture(t), provider = await f.connect();
     await provider.enable();
     const valid = { ...burnArgs, txid, transferId: 1, status: "WaitingConfirmations", minConfirmations: 3 };
+    const { version, ...unversioned } = burnArgs.burnDestination;
     const invalid = [
       null, { ...valid, txid: "" }, { ...valid, assetId: "rgb:other" }, { ...valid, amount: "6" },
       { ...valid, transferId: undefined }, { ...valid, status: undefined }, { ...valid, minConfirmations: 0 },
       { ...valid, burnDestination: undefined }, { ...valid, burnRecipient: burnArgs.burnDestination },
-      ...[{ dstEid: 999 }, { chainId: "eip155:137" }, { address: "0x" + "77".repeat(20) }, { version: 1 }]
+      { ...valid, burnDestination: unversioned },
+      ...[{ dstEid: 999 }, { chainId: "eip155:137" }, { address: "0x" + "77".repeat(20) },
+        ...[undefined, null, "1", 0, 2, 1.5, true].map((version) => ({ version }))]
         .map((patch) => ({ ...valid, burnDestination: { ...burnArgs.burnDestination, ...patch } })),
     ];
     const raw = f.bus.dapp.request.bind(f.bus.dapp);
