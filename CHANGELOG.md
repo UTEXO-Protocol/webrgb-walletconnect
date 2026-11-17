@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Breaking
 
-- Use profile `webrgb:2` and the single `burnDestination` contract from WebRGB.
-  Reject old sessions and legacy/mixed burn payloads. Prepare `1.0.0-next.0`
-  with the corresponding core peer dependency.
+- Use the single `burnDestination` contract from WebRGB. Keep session profile
+  `webrgb:1` and existing grants; reject legacy/mixed burn payloads before
+  delegation. Prepare `1.0.0-next.0` with the corresponding core peer dependency.
 - Require `burnDestination.version: 1` in requests and results. Reject missing
   or unsupported request versions before delegation; invalid result versions
   retain transaction IDs for recovery and never trigger another burn.

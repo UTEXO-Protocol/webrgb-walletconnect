@@ -17,14 +17,16 @@ implement this binding; a wallet can use any backend for [WebRGB](https://github
 | Namespace | `rgb` |
 | Chain | `rgb:<network>`, e.g. `rgb:regtest` |
 | Account | `rgb:<network>:<public-wallet-id>` |
-| Session property | `webrgb: "webrgb:2"` |
+| Session property | `webrgb: "webrgb:1"` |
 | RPC method | `rgb_<method>`, e.g. `rgb_blindReceive` |
 | RPC params | Positional array, e.g. `[{ assetId, amount }]` |
 | Events | `rgb_transferReceived`, `rgb_transferSettled`; data is `RgbTransfer` |
 
-Both peers MUST use this profile. Legacy `webrgb:1` sessions cannot carry the
-new burn contract; obtain a new session after upgrading both peers. Do not
-reinterpret a stored session or fall back to a legacy burn payload.
+Both peers MUST use this profile. Existing authorized sessions MAY be restored
+with their original grants. The profile does not negotiate method payload
+versions: both peers must support the requested burn contract. Legacy or mixed
+burn payloads MUST reject with `INVALID_PARAMS` before delegation; no fallback
+is allowed. New methods require a negotiated grant.
 
 Only `enable` and `getInfo` are requested by default. dApps explicitly list
 additional required methods, optional methods and events. The wallet uses

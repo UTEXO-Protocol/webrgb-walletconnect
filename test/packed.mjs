@@ -51,7 +51,7 @@ try {
     }
     const core = await import("@utexo/webrgb");
     assert.ok(core.RGB_ERROR_CODES.includes("NO_AVAILABLE_UTXOS"));
-    assert.equal(adapter.RGB_WALLETCONNECT_PROFILE, "webrgb:2");
+    assert.equal(adapter.RGB_WALLETCONNECT_PROFILE, "webrgb:1");
     for (const method of ["createUtxos", "getBtcBalance", "refresh", "getAssetMetadata"])
       assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes(method));
     assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("signMessage"));

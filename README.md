@@ -12,8 +12,10 @@ storage, backend validation and user confirmations.
 ## Contract compatibility
 
 This draft accompanies [WebRGB PR #9](https://github.com/UTEXO-Protocol/webrgb/pull/9).
-It uses profile `webrgb:2` and requires `burnDestination.version: 1`. Upgrade both
-peers and create a new session; legacy sessions and burn payloads are rejected.
+The `webrgb:1` session profile is unchanged. Burn now requires
+`burnDestination: { version: 1, chainId, address, dstEid }`; upgrade both peers
+for this contract. Existing session grants remain unchanged, and legacy burn
+payloads reject with `INVALID_PARAMS` before delegation.
 The development dependency is pinned to the core PR until its release; replace
 that pin with the published package before publishing this adapter.
 

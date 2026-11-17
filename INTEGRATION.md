@@ -77,8 +77,10 @@ bridge preparation changed. A validated receipt is not settlement.
 
 ### Burn and proof retrieval
 
-Upgrade both peers to the single-destination contract and establish a new
-`webrgb:2` session. Check capabilities before calling the optional methods:
+Upgrade both peers to the single-destination contract. The `webrgb:1` profile
+is unchanged; reconnect only if the session lacks the required method grants.
+Method names alone do not establish burn payload compatibility. Check
+capabilities before calling the optional methods:
 
 ```ts
 import { supports, type RgbBurnAssetArgs } from "@utexo/webrgb";

@@ -16,7 +16,7 @@ import {
   validateProof,
 } from "./walletconnect-proof.js";
 
-export const RGB_WALLETCONNECT_PROFILE = "webrgb:2";
+export const RGB_WALLETCONNECT_PROFILE = "webrgb:1";
 export const CONSIGNMENT_CHUNK_BYTES = CHUNK_BYTES;
 export const MAX_CONSIGNMENT_BYTES = MAX_BYTES;
 export const RGB_WALLETCONNECT_METHODS = Object.freeze([

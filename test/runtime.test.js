@@ -1636,18 +1636,37 @@ it("requires the configured transport network on received mint results, includin
   await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
 });
 
-describe("single-destination burn profile", () => {
-  it("negotiates the new profile and rejects old proposals and stored sessions before enable", async (t) => {
-    assert.equal(RGB_WALLETCONNECT_PROFILE, "webrgb:2");
-    const old = await fixture(t);
-    old.bus.proposal.params.sessionProperties = { webrgb: "webrgb:1" };
-    await assert.rejects(old.connect(), code("METHOD_NOT_SUPPORTED"));
-    assert.equal(old.counts.enable, 0);
-    assert.equal(old.counts.burn, 0);
+describe("single-destination burn contract", () => {
+  it("keeps the webrgb:1 profile and restores stored sessions without adding method grants", async (t) => {
+    assert.equal(RGB_WALLETCONNECT_PROFILE, "webrgb:1");
+    const f = await fixture(t, {}, { optionalMethods: ["listAssets", "burnAsset"] });
+    assert.equal(f.bus.proposal.params.sessionProperties.webrgb, "webrgb:1");
+    const provider = await f.connect();
+    await provider.enable();
+    const session = JSON.parse(JSON.stringify(f.bus.dapp.session.get(provider.topic)));
+    assert.equal(session.sessionProperties.webrgb, "webrgb:1");
+    f.bus.dapp.sessions.set(provider.topic, session);
+    const restored = createWalletConnectProvider({ client: f.bus.dapp, topic: provider.topic, network });
+    await restored.enable();
+    assert.deepEqual(await restored.listAssets(), [{ id: assetId, balance: 10 }]);
+    assert.ok((await restored.getInfo()).methods.includes("burnAsset"));
+    assert.ok(!(await restored.getInfo()).methods.includes("getReceivedMint"));
+    const requests = f.bus.calls.length;
+    await assert.rejects(restored.getReceivedMint({ invoice: mintInvoice }), code("METHOD_NOT_SUPPORTED"));
+    assert.equal(f.bus.calls.length, requests, "restoration must not grant a new method");
+    assert.equal(f.counts.burn, 0);
+  });
+
+  it("rejects unsupported profiles in proposals and stored sessions before enable", async (t) => {
+    const unsupported = await fixture(t);
+    unsupported.bus.proposal.params.sessionProperties = { webrgb: "webrgb:2" };
+    await assert.rejects(unsupported.connect(), code("METHOD_NOT_SUPPORTED"));
+    assert.equal(unsupported.counts.enable, 0);
+    assert.equal(unsupported.counts.burn, 0);
     const f = await fixture(t), provider = await f.connect();
     const session = f.bus.dapp.session.get(provider.topic);
     assert.equal(session.sessionProperties.webrgb, RGB_WALLETCONNECT_PROFILE);
-    session.sessionProperties = { webrgb: "webrgb:1" };
+    session.sessionProperties = { webrgb: "webrgb:2" };
     assert.throws(() => createWalletConnectProvider({ client: f.bus.dapp, topic: provider.topic, network }), code("NOT_ENABLED"));
     await assert.rejects(provider.enable(), code("NOT_ENABLED"));
     assert.equal(f.counts.enable, 0);

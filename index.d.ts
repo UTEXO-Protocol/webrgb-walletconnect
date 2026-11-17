@@ -96,8 +96,8 @@ export interface WalletConnectWalletClient {
   };
 }
 
-/** Both peers must implement this transport profile and its burn contract. */
-export declare const RGB_WALLETCONNECT_PROFILE: "webrgb:2";
+/** Session transport profile; method payload compatibility is checked separately. */
+export declare const RGB_WALLETCONNECT_PROFILE: "webrgb:1";
 export declare const RGB_WALLETCONNECT_METHODS: readonly RgbMethod[];
 export declare const CONSIGNMENT_CHUNK_BYTES: number;
 export declare const MAX_CONSIGNMENT_BYTES: number;

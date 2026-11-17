@@ -103,7 +103,7 @@ async function updatedContract(provider: WalletConnectProvider) {
     await provider.burnAsset({ ...args, burnDestination: { ...args.burnDestination, version: 2 } });
     // @ts-expect-error version must be a number, not a string
     await provider.burnAsset({ ...args, burnDestination: { ...args.burnDestination, version: "1" } });
-    // @ts-expect-error legacy requests must not be accepted by the new profile
+    // @ts-expect-error legacy requests must not be accepted by the new burn contract
     await provider.burnAsset({ network: "regtest", assetId: "rgb:asset", amount: "1", burnRecipient: args.burnDestination });
   }
   const info = await provider.getInfo();
