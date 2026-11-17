@@ -7,6 +7,7 @@ import {
 } from "@walletconnect/utils";
 import { RGB_ERROR_CODES } from "@utexo/webrgb";
 import { receivedMintArgs, receivedMintResult } from "./walletconnect-mint.js";
+import { burnAssetArgs, burnAssetResult } from "./walletconnect-burn.js";
 import {
   CHUNK_BYTES,
   MAX_BYTES,
@@ -15,7 +16,7 @@ import {
   validateProof,
 } from "./walletconnect-proof.js";
 
-export const RGB_WALLETCONNECT_PROFILE = "webrgb:1";
+export const RGB_WALLETCONNECT_PROFILE = "webrgb:2";
 export const CONSIGNMENT_CHUNK_BYTES = CHUNK_BYTES;
 export const MAX_CONSIGNMENT_BYTES = MAX_BYTES;
 export const RGB_WALLETCONNECT_METHODS = Object.freeze([
@@ -25,6 +26,10 @@ export const RGB_WALLETCONNECT_METHODS = Object.freeze([
   "signMessage",
   "blindReceive",
   "witnessReceive",
+  "createUtxos",
+  "getBtcBalance",
+  "refresh",
+  "getAssetMetadata",
   "issueAsset",
   "listAssets",
   "getAssetBalance",
@@ -44,7 +49,7 @@ const EVENTS = ["transferReceived", "transferSettled"];
 const RESUMABLE_READS = new Set([
   "getInfo", "listAssets", "getAssetBalance", "listTransfers",
   "getTransferStatus", "decodeRgbInvoice", "getConsignment",
-  "getReceivedMint",
+  "getReceivedMint", "getBtcBalance", "refresh", "getAssetMetadata",
 ]);
 const PROFILE = { webrgb: RGB_WALLETCONNECT_PROFILE };
 const DISCONNECT = getSdkError("USER_DISCONNECTED");
@@ -415,6 +420,10 @@ export function createWalletConnectProvider({ client, topic, network, requestTim
     async getConsignment(/** @type {import("@utexo/webrgb").RgbGetConsignmentArgs} */ args) {
       proofArgs(args);
       return receiveProof(args, (part) => request("getConsignment", [part]));
+    },
+    async burnAsset(/** @type {import("@utexo/webrgb").RgbBurnAssetArgs} */ args) {
+      const checked = burnAssetArgs(args, network);
+      return request("burnAsset", [checked], (value) => burnAssetResult(value, checked));
     },
     async getReceivedMint(/** @type {import("@utexo/webrgb").RgbGetReceivedMintArgs} */ args) {
       const checked = receivedMintArgs(args);
@@ -854,8 +863,8 @@ export function createWalletConnectWallet(options) {
       throw fail("Method was not approved", "METHOD_NOT_SUPPORTED");
     const args = request.params;
     if (!Array.isArray(args)) throw fail("RPC params must be a positional array", "INVALID_PARAMS");
-    const zero = ["enable", "getInfo", "getAddress", "listAssets"];
-    const optionalArgs = ["blindReceive", "witnessReceive", "listTransfers"];
+    const zero = ["enable", "getInfo", "getAddress", "listAssets", "getBtcBalance"];
+    const optionalArgs = ["blindReceive", "witnessReceive", "listTransfers", "createUtxos", "refresh"];
     const min = zero.includes(method) || optionalArgs.includes(method) ? 0 : 1;
     const max = zero.includes(method) ? 0 : method === "getTransferStatus" ? 2 : 1;
     if (args.length < min || args.length > max)
@@ -892,6 +901,9 @@ export function createWalletConnectWallet(options) {
       result.methods = result.methods.filter(
         (/** @type {string} */ m) => typeof provider[m] === "function",
       );
+    } else if (method === "burnAsset") {
+      const checked = burnAssetArgs(args[0], network);
+      result = burnAssetResult(await provider.burnAsset(structuredClone(checked)), checked);
     } else if (method === "getReceivedMint") {
       const checked = receivedMintArgs(args[0]);
       result = receivedMintResult(await provider.getReceivedMint(checked), checked, network);
@@ -1031,6 +1043,7 @@ export function createWalletConnectWallet(options) {
       "rgb_blindReceive",
       "rgb_witnessReceive",
       "rgb_burnAsset",
+      "rgb_createUtxos",
       "rgb_sendAsset",
       "rgb_issueAsset",
       "rgb_makeLnInvoice",

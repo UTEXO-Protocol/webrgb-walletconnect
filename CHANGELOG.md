@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking
+
+- Use profile `webrgb:2` and the single `burnDestination` contract from WebRGB.
+  Reject old sessions and legacy/mixed burn payloads. Prepare `1.0.0-next.0`
+  with the corresponding core peer dependency.
+
+### Added
+
+- Validate burn requests and responses at both transport boundaries; preserve
+  usable transaction IDs in invalid-result errors for recovery without replay.
+- Support optional `createUtxos`, `getBtcBalance`, `refresh` and `getAssetMetadata`.
+  Resume only the three reads; deduplicate UTXO creation without retrying it.
+
+## [0.1.5]
+
 ### Fixed
 
 - Accept a checked `getReceivedMint` result without `txid` before lock payment;

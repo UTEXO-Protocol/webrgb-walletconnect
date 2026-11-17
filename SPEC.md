@@ -6,9 +6,9 @@ wallet. The SDKs own pairing, encryption, relay connections and session
 storage. WebRGB supplies the method mapping and wallet consent boundaries.
 See [INTEGRATION.md](./INTEGRATION.md) for usage.
 
-The `rgb` namespace, profile tag and consignment chunks below are experimental
-UTEXO protocol choices. They are not WalletConnect standards. Both ends must
-implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md).
+The `rgb` namespace, profile tag and consignment chunks are WebRGB binding
+choices, not WalletConnect standards. Both ends must
+implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/pull/9).
 
 ## 1. Session
 
@@ -17,10 +17,14 @@ implement this binding; a wallet can use any backend for [WebRGB](https://github
 | Namespace | `rgb` |
 | Chain | `rgb:<network>`, e.g. `rgb:regtest` |
 | Account | `rgb:<network>:<public-wallet-id>` |
-| Session property | `webrgb: "webrgb:1"` |
+| Session property | `webrgb: "webrgb:2"` |
 | RPC method | `rgb_<method>`, e.g. `rgb_blindReceive` |
 | RPC params | Positional array, e.g. `[{ assetId, amount }]` |
 | Events | `rgb_transferReceived`, `rgb_transferSettled`; data is `RgbTransfer` |
+
+Both peers MUST use this profile. Legacy `webrgb:1` sessions cannot carry the
+new burn contract; obtain a new session after upgrading both peers. Do not
+reinterpret a stored session or fall back to a legacy burn payload.
 
 Only `enable` and `getInfo` are requested by default. dApps explicitly list
 additional required methods, optional methods and events. The wallet uses
@@ -44,9 +48,34 @@ obtains user approval for each signing request.
 `witnessReceive(args?)` maps to `rgb_witnessReceive` with params `[args]`,
 or `[]` when omitted. Arguments and the invoice result pass through unchanged.
 
-`burnAsset(args)` maps to `rgb_burnAsset`. `burnRecipient` and
-`getInfo().burnRecipientNamespaces` pass through unchanged. Payout chain IDs
-are method arguments; the session still uses `rgb:<network>`.
+`burnAsset(args)` maps to `rgb_burnAsset` with one positional argument.
+Requests and results carry `burnDestination: { chainId, address, dstEid }`.
+Both adapters check the request shape and network, reject legacy/mixed fields,
+and match the result's asset, exact amount and destination to the request.
+The wallet validates native addresses, route support and the commitment before
+confirmation. The transport does not infer endpoints or compute commitments.
+`getInfo().burnRecipientNamespaces` passes through unchanged; payout chains
+remain method arguments and the session still uses `rgb:<network>`.
+
+An invalid result uses `INTERNAL_ERROR`, not a pre-burn rejection. Its message
+retains a valid transaction ID when available for recovery. Neither a malformed
+result nor a timeout permits automatic resubmission.
+
+### Optional wallet methods
+
+| Method | Positional params | Result |
+| --- | --- | --- |
+| `createUtxos` | `[]` or `[{ num?, size?, feeRate? }]` | `RgbCreateUtxosResult` |
+| `getBtcBalance` | `[]` | `RgbBtcBalance` |
+| `refresh` | `[]` or `[assetId]` | `{ refreshed: boolean }` |
+| `getAssetMetadata` | `[assetId]` | `RgbAssetMetadata` |
+
+Each uses the `rgb_` RPC prefix and requires a negotiated grant plus a wallet
+implementation. Values and WebRGB errors, including `NO_AVAILABLE_UTXOS`, pass
+through unchanged. Wallets preserve exact string-valued `issuedSupply` and
+propagate per-transfer refresh failures. `createUtxos` requires confirmation
+and shares the burn policy: no automatic replay and deduplication by RPC ID.
+The other three methods join the bounded read-resumption allowlist.
 
 ### Received mint
 

@@ -11,6 +11,8 @@ import {
   createWalletConnectWallet,
   CONSIGNMENT_CHUNK_BYTES,
   MAX_CONSIGNMENT_BYTES,
+  RGB_WALLETCONNECT_PROFILE,
+  RGB_WALLETCONNECT_METHODS,
 } from "@utexo/webrgb-walletconnect";
 import { receiveProof, validateProof } from "../walletconnect-proof.js";
 
@@ -24,7 +26,7 @@ const burnArgs = {
   network,
   assetId,
   amount: "5",
-  burnRecipient: { chainId: "eip155:1", address: `0x${"56".repeat(20)}` },
+  burnDestination: { chainId: "eip155:1", address: `0x${"56".repeat(20)}`, dstEid: 30101 },
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => {
@@ -379,7 +381,7 @@ describe("WalletConnect transport", () => {
     );
   });
 
-  it("preserves native burn recipients and namespace capabilities on RGB sessions", async (t) => {
+  it("preserves burn destinations and namespace capabilities on RGB sessions", async (t) => {
     const f = await fixture(t);
     const getInfo = f.backend.getInfo;
     const namespaces = ["eip155", "tron", "cosmos"];
@@ -389,14 +391,14 @@ describe("WalletConnect transport", () => {
     assert.deepEqual((await provider.getInfo()).burnRecipientNamespaces, namespaces);
     assert.deepEqual(Object.keys(f.bus.dapp.session.get(provider.topic).namespaces), ["rgb"]);
     const recipients = [
-      burnArgs.burnRecipient,
-      { chainId: "tron:728126428", address: "TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL" },
-      { chainId: "cosmos:cosmoshub-4", address: "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0" },
+      burnArgs.burnDestination,
+      { chainId: "tron:728126428", address: "TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL", dstEid: 30420 },
+      { chainId: "cosmos:cosmoshub-4", address: "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0", dstEid: 1 },
     ];
-    for (const burnRecipient of recipients) {
-      const args = { ...burnArgs, burnRecipient };
+    for (const burnDestination of recipients) {
+      const args = { ...burnArgs, burnDestination };
       const burn = await provider.burnAsset(args);
-      assert.deepEqual(burn.burnRecipient, burnRecipient);
+      assert.deepEqual(burn.burnDestination, burnDestination);
       const event = f.bus.calls.at(-1);
       assert.equal(event.params.chainId, "rgb:regtest");
       assert.equal(event.params.request.method, "rgb_burnAsset");
@@ -1632,4 +1634,226 @@ it("requires the configured transport network on received mint results, includin
   assert.equal((await provider.getReceivedMint({ invoice: mintInvoice })).network, "utexo");
   projectAlias = false;
   await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
+});
+
+describe("single-destination burn profile", () => {
+  it("negotiates the new profile and rejects old proposals and stored sessions before enable", async (t) => {
+    assert.equal(RGB_WALLETCONNECT_PROFILE, "webrgb:2");
+    const old = await fixture(t);
+    old.bus.proposal.params.sessionProperties = { webrgb: "webrgb:1" };
+    await assert.rejects(old.connect(), code("METHOD_NOT_SUPPORTED"));
+    assert.equal(old.counts.enable, 0);
+    assert.equal(old.counts.burn, 0);
+    const f = await fixture(t), provider = await f.connect();
+    const session = f.bus.dapp.session.get(provider.topic);
+    assert.equal(session.sessionProperties.webrgb, RGB_WALLETCONNECT_PROFILE);
+    session.sessionProperties = { webrgb: "webrgb:1" };
+    assert.throws(() => createWalletConnectProvider({ client: f.bus.dapp, topic: provider.topic, network }), code("NOT_ENABLED"));
+    await assert.rejects(provider.enable(), code("NOT_ENABLED"));
+    assert.equal(f.counts.enable, 0);
+  });
+
+  it("rejects old, mixed and malformed burn requests at both boundaries before delegation", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const { burnDestination, ...base } = burnArgs;
+    const malformed = [
+      null, [], base, { ...base, burnRecipient: burnDestination },
+      { ...burnArgs, burnRecipient: burnDestination }, { ...burnArgs, network: "signet" },
+      { ...burnArgs, assetId: "" }, { ...burnArgs, amount: 1 }, { ...burnArgs, amount: "01" },
+      { ...burnArgs, amount: "0" }, { ...burnArgs, amount: "18446744073709551616" },
+      { ...burnArgs, feeRate: 0.5 }, { ...burnArgs, feeRate: 0 },
+      { ...burnArgs, minConfirmations: 0 }, { ...burnArgs, minConfirmations: 256 },
+      ...[
+        { dstEid: undefined }, { dstEid: -1 }, { dstEid: 2 ** 32 }, { dstEid: 1.5 },
+        { chainId: "eip155" }, { address: "" }, { version: 1 },
+        { destinationChainId: 1 }, { recipient: "0x1234" },
+      ].map((patch) => ({ ...burnArgs, burnDestination: { ...burnDestination, ...patch } })),
+    ];
+    for (const args of malformed) {
+      const requests = f.bus.calls.length;
+      await assert.rejects(provider.burnAsset(args), code("INVALID_PARAMS"));
+      assert.equal(f.bus.calls.length, requests, "invalid input must not reach the relay");
+      await assert.rejects(f.bus.dapp.request({ topic: provider.topic, chainId: `rgb:${network}`,
+        request: { method: "rgb_burnAsset", params: [args] } }), (error) => error.data === "INVALID_PARAMS");
+    }
+    for (const params of [[], [burnArgs, burnArgs]]) {
+      await assert.rejects(f.bus.dapp.request({ topic: provider.topic, chainId: `rgb:${network}`,
+        request: { method: "rgb_burnAsset", params } }), (error) => error.data === "INVALID_PARAMS");
+    }
+    assert.equal(f.counts.burn, 0);
+    assert.equal((await provider.getInfo()).ready, true);
+  });
+
+  it("snapshots the caller's destination and preserves exact u64 amounts and direct payouts", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const args = { ...burnArgs, amount: "18446744073709551615",
+      burnDestination: { ...burnArgs.burnDestination, chainId: "eip155:42161", dstEid: 0 } };
+    const expected = structuredClone(args), pending = provider.burnAsset(args);
+    args.amount = "1";
+    args.burnDestination.dstEid = 30110;
+    const result = await pending;
+    assert.equal(result.amount, expected.amount);
+    assert.deepEqual(result.burnDestination, expected.burnDestination);
+    assert.deepEqual(f.bus.calls.at(-1).params.request.params, [expected]);
+    assert.equal(Object.hasOwn(result, "burnRecipient"), false);
+  });
+
+  it("checks a wallet response against the original request even if the backend mutates its input", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    f.backend.burnAsset = async (args) => {
+      f.counts.burn++;
+      args.burnDestination.dstEid = 999;
+      return { ...args, txid, transferId: 1, status: "WaitingConfirmations", minConfirmations: 3 };
+    };
+    await assert.rejects(provider.burnAsset(burnArgs), (error) => {
+      assert.equal(error.code, "INTERNAL_ERROR");
+      assert.ok(error.message.includes(txid));
+      assert.match(error.message, /do not burn again/);
+      return true;
+    });
+    assert.equal(f.counts.burn, 1);
+    assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_burnAsset").length, 1);
+  });
+
+  it("rejects malformed or mismatched results from either peer without retrying the burn", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    const valid = { ...burnArgs, txid, transferId: 1, status: "WaitingConfirmations", minConfirmations: 3 };
+    const invalid = [
+      null, { ...valid, txid: "" }, { ...valid, assetId: "rgb:other" }, { ...valid, amount: "6" },
+      { ...valid, transferId: undefined }, { ...valid, status: undefined }, { ...valid, minConfirmations: 0 },
+      { ...valid, burnDestination: undefined }, { ...valid, burnRecipient: burnArgs.burnDestination },
+      ...[{ dstEid: 999 }, { chainId: "eip155:137" }, { address: "0x" + "77".repeat(20) }, { version: 1 }]
+        .map((patch) => ({ ...valid, burnDestination: { ...burnArgs.burnDestination, ...patch } })),
+    ];
+    const raw = f.bus.dapp.request.bind(f.bus.dapp);
+    for (const result of invalid) {
+      let invoked = 0;
+      f.backend.burnAsset = async () => { invoked++; return result; };
+      await assert.rejects(provider.burnAsset(burnArgs), code("INTERNAL_ERROR"));
+      assert.equal(invoked, 1);
+      // Independently test a remote implementation that bypasses the wallet adapter.
+      let requests = 0;
+      f.bus.dapp.request = async () => { requests++; return result; };
+      await assert.rejects(provider.burnAsset(burnArgs), code("INTERNAL_ERROR"));
+      assert.equal(requests, 1);
+      f.bus.dapp.request = raw;
+    }
+    f.backend.burnAsset = async () => valid;
+    await assert.rejects(provider.burnAsset({ ...burnArgs, minConfirmations: 6 }), code("INTERNAL_ERROR"));
+  });
+});
+
+describe("optional wallet maintenance methods", () => {
+  const added = ["createUtxos", "getBtcBalance", "refresh", "getAssetMetadata"];
+  const methods = ["enable", "getInfo", ...added];
+  async function setup(t, connectOptions = {}) {
+    const f = await fixture(t, { methods }, connectOptions);
+    const seen = [];
+    const balance = { vanilla: { settled: 1000, future: 1000, spendable: 1000 },
+      colored: { settled: 0, future: 0, spendable: 0 }, freeColorableUtxos: null };
+    const metadata = { assetId, schema: "bfa", name: "BFA", ticker: null, details: null,
+      precision: 6, issuedSupply: "18446744073709551615", timestamp: 1, media: null };
+    f.backend.createUtxos = async (...args) => { seen.push(["createUtxos", args]); return { created: args[0]?.num ?? 3, size: 3000, feeRate: 2 }; };
+    f.backend.getBtcBalance = async (...args) => { seen.push(["getBtcBalance", args]); return balance; };
+    f.backend.refresh = async (...args) => { seen.push(["refresh", args]); return { refreshed: false }; };
+    f.backend.getAssetMetadata = async (...args) => { seen.push(["getAssetMetadata", args]); return metadata; };
+    const provider = await f.connect();
+    await provider.enable();
+    return { ...f, provider, seen, balance, metadata };
+  }
+
+  it("negotiates optional methods and preserves native values and optional arguments", async (t) => {
+    const f = await setup(t), { provider } = f;
+    for (const method of added) {
+      assert.ok(RGB_WALLETCONNECT_METHODS.includes(method));
+      assert.ok((await provider.getInfo()).methods.includes(method));
+    }
+    assert.equal(RGB_WALLETCONNECT_METHODS.includes("cancelReceive"), false);
+    assert.equal(RGB_WALLETCONNECT_METHODS.includes("signPsbt"), false);
+    assert.deepEqual(await provider.getBtcBalance(), f.balance);
+    assert.deepEqual(await provider.getAssetMetadata(assetId), f.metadata);
+    assert.deepEqual(await provider.refresh(), { refreshed: false });
+    assert.deepEqual(await provider.refresh(assetId), { refreshed: false });
+    assert.equal((await provider.createUtxos()).created, 3);
+    assert.equal((await provider.createUtxos(undefined)).created, 3);
+    assert.equal((await provider.createUtxos({ num: 2, size: 3000, feeRate: 2 })).created, 2);
+    assert.deepEqual(f.seen, [
+      ["getBtcBalance", []], ["getAssetMetadata", [assetId]], ["refresh", []], ["refresh", [assetId]],
+      ["createUtxos", []], ["createUtxos", []], ["createUtxos", [{ num: 2, size: 3000, feeRate: 2 }]],
+    ]);
+  });
+
+  it("requires both session grants and an implemented backend method", async (t) => {
+    const f = await setup(t, { optionalMethods: [] });
+    for (const [method, args] of [["createUtxos", []], ["getBtcBalance", []], ["refresh", []], ["getAssetMetadata", [assetId]]]) {
+      assert.equal((await f.provider.getInfo()).methods.includes(method), false);
+      await assert.rejects(f.provider[method](...args), code("METHOD_NOT_SUPPORTED"));
+    }
+    assert.equal(f.seen.length, 0);
+    const missing = await fixture(t, { methods }), provider = await missing.connect();
+    await provider.enable();
+    for (const method of added) assert.equal((await provider.getInfo()).methods.includes(method), false);
+    await assert.rejects(provider.createUtxos(), code("METHOD_NOT_SUPPORTED"));
+  });
+
+  it("validates positional arity before the wallet operation", async (t) => {
+    const f = await setup(t);
+    for (const [method, params] of [["getBtcBalance", [{}]], ["getAssetMetadata", []],
+      ["createUtxos", [{}, {}]], ["refresh", [assetId, assetId]]]) {
+      await assert.rejects(f.bus.dapp.request({ topic: f.provider.topic, chainId: `rgb:${network}`,
+        request: { method: `rgb_${method}`, params } }), (error) => error.data === "INVALID_PARAMS");
+    }
+    assert.equal(f.seen.length, 0);
+  });
+
+  it("propagates allocation and refresh failures without converting them to success", async (t) => {
+    const f = await setup(t);
+    f.backend.createUtxos = async () => { throw Object.assign(new Error("No allocation slot"), { code: "NO_AVAILABLE_UTXOS" }); };
+    await assert.rejects(f.provider.createUtxos(), code("NO_AVAILABLE_UTXOS"));
+    f.backend.refresh = async () => { throw Object.assign(new Error("Receive refresh failed"), { code: "INTERNAL_ERROR" }); };
+    await assert.rejects(f.provider.refresh(), code("INTERNAL_ERROR"));
+  });
+
+  for (const [method, params] of [["getBtcBalance", []], ["refresh", [assetId]], ["getAssetMetadata", [assetId]]]) {
+    it(`resumes ${method} once after runtime replacement without creating UTXOs`, async (t) => {
+      const f = await setup(t);
+      f.host.dispose();
+      const resumed = createWalletConnectWallet(f.options);
+      t.after(() => resumed.dispose());
+      const before = f.bus.calls.length;
+      await f.provider[method](...params);
+      assert.deepEqual(f.bus.calls.slice(before).map((call) => call.params.request.method),
+        [`rgb_${method}`, "rgb_enable", `rgb_${method}`]);
+      assert.deepEqual(f.seen.map(([name]) => name), [method]);
+    });
+  }
+
+  it("never resumes or automatically retries createUtxos", async (t) => {
+    const f = await setup(t);
+    f.backend.createUtxos = async () => {
+      f.seen.push(["createUtxos", []]);
+      throw Object.assign(new Error("Wallet locked"), { code: "NOT_ENABLED" });
+    };
+    const before = f.bus.calls.length;
+    await assert.rejects(f.provider.createUtxos(), code("NOT_ENABLED"));
+    assert.deepEqual(f.bus.calls.slice(before).map((call) => call.params.request.method), ["rgb_createUtxos"]);
+    assert.equal(f.seen.length, 1);
+  });
+
+  it("deduplicates repeated createUtxos RPC IDs without spending again", async (t) => {
+    const f = await setup(t);
+    const result = await f.provider.createUtxos({ num: 2 });
+    const event = f.bus.calls.at(-1);
+    f.bus.wallet.emitter.emit("session_request", structuredClone(event));
+    await tick();
+    assert.equal(f.seen.filter(([name]) => name === "createUtxos").length, 1);
+    const replies = f.bus.responses.filter((reply) => reply.id === event.id);
+    assert.equal(replies.length, 2);
+    assert.deepEqual(replies[0].result, result);
+    assert.deepEqual(replies[1].result, result);
+  });
 });
