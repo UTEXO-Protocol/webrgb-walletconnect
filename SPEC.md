@@ -8,7 +8,7 @@ See [INTEGRATION.md](./INTEGRATION.md) for usage.
 
 The `rgb` namespace, profile tag and consignment chunks below are experimental
 UTEXO protocol choices. They are not WalletConnect standards. Both ends must
-implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/4b04e78f55e9808ee491ef2510fd9eb8c006cbe5/SPEC.md).
+implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/b63f34b6a3ca69c25bc78b0f5a9358b43f1add7b/SPEC.md).
 
 ## 1. Session
 
@@ -47,6 +47,41 @@ or `[]` when omitted. Arguments and the invoice result pass through unchanged.
 `burnAsset(args)` maps to `rgb_burnAsset`. `burnRecipient` and
 `getInfo().burnRecipientNamespaces` pass through unchanged. Payout chain IDs
 are method arguments; the session still uses `rgb:<network>`.
+
+### Received mint
+
+`getReceivedMint({ invoice })` maps to `rgb_getReceivedMint` with params
+`[{ invoice }]`. This optional method must be in the approved namespace and
+advertised in `getInfo().methods`. The dApp checks that the provider implements
+the method before calling it. The full, unchanged invoice is the only argument.
+Recipient-only queries and caller-supplied asset or settlement fields are invalid.
+
+After `enable()`, polling an invoice owned by the active wallet account MUST
+require no additional consent prompt. The wallet must still verify invoice
+ownership and binding, and enforce the current origin, account, network and
+session permissions. Transport checks do not validate proof contents.
+
+The result is `RgbReceivedMint` from WebRGB, or explicit `null` while no validated
+mint is ready. Validation and authorization failures return errors. The
+`invoice` and `network` fields must match the request and session exactly,
+respectively. A wallet using a network alias validates the native network and
+projects the result to the same alias as `getInfo()`.
+
+Existing sessions keep their approved method set after a software upgrade.
+Neither `enable()` nor automatic read recovery adds `rgb_getReceivedMint` to it.
+A missing permission requires a newly approved session or an explicitly approved
+WalletConnect namespace update; the adapter does not initiate such an update.
+
+The method refreshes incoming state and can progress delivery of an already
+signed incoming transaction. It may return a previously validated receipt.
+The result does not establish a fresh check of every time-dependent rule or
+current EVM connectivity. It cannot create an invoice, initiate or replay an
+outgoing send or burn, or approve or pay an EVM deposit.
+
+The adapter uses the bounded read deadline and may recover one `NOT_ENABLED`
+read through an enable handshake, preserving the exact invoice. A timeout,
+validation failure or revocation is not retried. See
+[INTEGRATION.md](./INTEGRATION.md#checking-a-prepared-mint) for payment checks.
 
 ## 2. Consignment transfer
 

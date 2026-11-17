@@ -58,8 +58,8 @@ const wallet = createWalletConnectWallet({
 await wallet.pair(scannedUri);
 ```
 
-Connection approval grants access. The wallet still confirms each operation
-according to WebRGB and checks `context.assertAuthorized()` after confirmation.
+Connection approval grants access. The wallet follows WebRGB's per-method consent
+rules and checks `context.assertAuthorized()` after any confirmation.
 The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 
 ## Protocol and core dependency
@@ -67,10 +67,29 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/4b04e78f55e9808ee491ef2510fd9eb8c006cbe5/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/b63f34b6a3ca69c25bc78b0f5a9358b43f1add7b/SPEC.md).
 
-The application supplies `@utexo/webrgb` (^0.1.3) as a peer dependency, so both packages
-share one contract. Development uses the published `0.1.3` package.
+The application supplies `@utexo/webrgb` as a peer dependency, so both packages
+share one contract. This candidate pins the WebRGB commit above for development;
+its new received-mint types are not part of the older published package.
+
+### Received-mint reads and existing sessions
+
+To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
+`optionalMethods` when connecting. After approval, call `enable()` and check that
+`getInfo().methods` includes it and that the function exists on the provider.
+Polling an owned invoice needs no additional consent prompt. A `null` result
+means the proof is still pending. Validation and authorization errors reject.
+See [the mint integration guide](./INTEGRATION.md#checking-a-prepared-mint) for
+the checks a dApp must make before paying the deposit.
+
+An application or wallet upgrade does not add permissions to an existing session.
+If its approved namespace lacks `rgb_getReceivedMint`, request a new session and
+obtain the user's approval. Applications that implement WalletConnect session
+updates can instead obtain explicit approval for the additional permission before
+updating the namespace. This adapter does not expand grants during `enable()` or
+read recovery. Both the session grant and the wallet capability must allow the
+method. Reconnecting must not automatically resubmit a deposit, send or burn.
 
 ## Development
 
@@ -96,7 +115,7 @@ unlocked or connected to the relay.
 After a previously enabled wallet runtime restarts, read-only calls can recover
 one `NOT_ENABLED` reply with one enable handshake and one repeated read. The
 allowlist is `getInfo`, `listAssets`, `getAssetBalance`, `listTransfers`,
-`getTransferStatus`, `decodeRgbInvoice`, and `getConsignment`. Every handshake and
+`getTransferStatus`, `decodeRgbInvoice`, `getReceivedMint`, and `getConsignment`. Every handshake and
 request rechecks the current topic, expiry, profile, network, accounts, origin
 and method permissions. An account or wallet-origin change requires a new
 provider; late callbacks cannot enable a disposed/replaced provider.
