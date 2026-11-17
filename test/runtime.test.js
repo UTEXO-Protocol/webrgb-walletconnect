@@ -1426,6 +1426,51 @@ const mintResult = {
 };
 
 describe("invoice-scoped received mint", () => {
+  it("returns a checked mint without txid across both JSON peers before payment", async (t) => {
+    const f = await fixture(t);
+    const beforePayment = { ...mintResult };
+    delete beforePayment.txid;
+    let received = beforePayment;
+    f.backend.getReceivedMint = async () => received;
+    const provider = await f.connect();
+    await provider.enable();
+
+    const checked = await provider.getReceivedMint({ invoice: mintInvoice });
+    assert.deepEqual(checked, beforePayment);
+    assert.equal(Object.hasOwn(checked, "txid"), false);
+    assert.equal(Object.hasOwn(f.bus.responses.at(-1).result, "txid"), false);
+    assert.equal(checked.lockId, mintResult.lockId);
+    assert.equal(BigInt(checked.amount), 9007199254740993n);
+
+    // Native JS providers may explicitly return undefined; omit it on the wire too.
+    received = { ...beforePayment, txid: undefined };
+    assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), beforePayment);
+    received = mintResult;
+    assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), mintResult);
+    assert.equal(f.counts.burn, 0);
+    assert.equal(f.counts.receive, 0);
+  });
+
+  it("rejects a supplied malformed txid on both sides of the transport", async (t) => {
+    const f = await fixture(t);
+    let received = mintResult;
+    f.backend.getReceivedMint = async () => received;
+    const provider = await f.connect();
+    await provider.enable();
+    const invalid = [null, "", "a".repeat(63), "a".repeat(65), "A".repeat(64),
+      "0x" + txid, 1, {}, []];
+    for (const value of invalid) {
+      received = { ...mintResult, txid: value };
+      await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
+    }
+    // A raw peer bypassing the wallet adapter is still checked by the dApp adapter.
+    f.bus.dapp.request = async () => received;
+    for (const value of invalid) {
+      received = { ...mintResult, txid: value };
+      await assert.rejects(provider.getReceivedMint({ invoice: mintInvoice }), code("INTERNAL_ERROR"));
+    }
+  });
+
   it("polls an owned invoice without another approval and preserves exact commitment integers", async (t) => {
     let approvals = 0;
     const f = await fixture(t, { approveSession: async () => { approvals++; return true; } });
@@ -1510,14 +1555,16 @@ describe("invoice-scoped received mint", () => {
 
   it("resumes the real wallet adapter once without creating invoices or replaying burns", async (t) => {
     const f = await fixture(t);
+    const beforePayment = { ...mintResult };
+    delete beforePayment.txid;
     let reads = 0;
-    f.backend.getReceivedMint = async () => { reads++; return mintResult; };
+    f.backend.getReceivedMint = async () => { reads++; return beforePayment; };
     const provider = await f.connect();
     await provider.enable();
     f.host.dispose();
     const resumed = createWalletConnectWallet(f.options);
     t.after(() => resumed.dispose());
-    assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), mintResult);
+    assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), beforePayment);
     assert.equal(reads, 1);
     assert.deepEqual(f.bus.calls.slice(-3).map((event) => event.params.request.method),
       ["rgb_getReceivedMint", "rgb_enable", "rgb_getReceivedMint"]);

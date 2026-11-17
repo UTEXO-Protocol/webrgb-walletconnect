@@ -8,7 +8,7 @@ See [INTEGRATION.md](./INTEGRATION.md) for usage.
 
 The `rgb` namespace, profile tag and consignment chunks below are experimental
 UTEXO protocol choices. They are not WalletConnect standards. Both ends must
-implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/b63f34b6a3ca69c25bc78b0f5a9358b43f1add7b/SPEC.md).
+implement this binding; a wallet can use any backend for [WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md).
 
 ## 1. Session
 
@@ -55,6 +55,8 @@ are method arguments; the session still uses `rgb:<network>`.
 advertised in `getInfo().methods`. The dApp checks that the provider implements
 the method before calling it. The full, unchanged invoice is the only argument.
 Recipient-only queries and caller-supplied asset or settlement fields are invalid.
+The wallet MUST reject any-asset invoices with `INVALID_PARAMS`, as required
+by WebRGB; invoice decoding and proof-to-asset binding remain wallet checks.
 
 After `enable()`, polling an invoice owned by the active wallet account MUST
 require no additional consent prompt. The wallet must still verify invoice
@@ -66,6 +68,11 @@ mint is ready. Validation and authorization failures return errors. The
 `invoice` and `network` fields must match the request and session exactly,
 respectively. A wallet using a network alias validates the native network and
 projects the result to the same alias as `getInfo()`.
+`txid` is optional: a checked mint can be returned before the lock is paid,
+when transfer history may not yet name its witness transaction. If supplied,
+`txid` must be lowercase 64-character hex; `null` or malformed values reject.
+An omitted `txid` stays omitted on both sides of the JSON transport and does
+not make the entire result pending. The required `lockId` commits to it.
 
 Existing sessions keep their approved method set after a software upgrade.
 Neither `enable()` nor automatic read recovery adds `rgb_getReceivedMint` to it.

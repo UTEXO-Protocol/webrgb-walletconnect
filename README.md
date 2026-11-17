@@ -67,11 +67,11 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/b63f34b6a3ca69c25bc78b0f5a9358b43f1add7b/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md).
 
-The application supplies `@utexo/webrgb` as a peer dependency, so both packages
-share one contract. This candidate pins the WebRGB commit above for development;
-its new received-mint types are not part of the older published package.
+The application supplies `@utexo/webrgb@^0.1.5` as a peer dependency, so both
+packages share the contract with an optional received-mint `txid`. Development
+and validation use the published `@utexo/webrgb@0.1.5` package from npm.
 
 ### Received-mint reads and existing sessions
 
@@ -79,7 +79,9 @@ To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
 `optionalMethods` when connecting. After approval, call `enable()` and check that
 `getInfo().methods` includes it and that the function exists on the provider.
 Polling an owned invoice needs no additional consent prompt. A `null` result
-means the proof is still pending. Validation and authorization errors reject.
+means the proof is still pending. A checked receipt may omit `txid` before
+payment; do not treat its absence as pending. Use an asset-specific invoice.
+Validation and authorization errors reject.
 See [the mint integration guide](./INTEGRATION.md#checking-a-prepared-mint) for
 the checks a dApp must make before paying the deposit.
 
