@@ -58,8 +58,8 @@ const wallet = createWalletConnectWallet({
 await wallet.pair(scannedUri);
 ```
 
-Connection approval grants access. The wallet still confirms each operation
-according to WebRGB and checks `context.assertAuthorized()` after confirmation.
+Connection approval grants access. The wallet follows WebRGB's per-method consent
+rules and checks `context.assertAuthorized()` after any confirmation.
 The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 
 ## Protocol and core dependency
@@ -67,7 +67,7 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 [SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/63d884a1b133abe193184cf62586b0bcd00551a9/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/b63f34b6a3ca69c25bc78b0f5a9358b43f1add7b/SPEC.md).
 
 The application supplies `@utexo/webrgb` as a peer dependency, so both packages
 share one contract. This candidate pins the WebRGB commit above for development;
@@ -76,14 +76,12 @@ its new received-mint types are not part of the older published package.
 ### Received-mint reads and existing sessions
 
 To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
-`optionalMethods` when connecting. After approval, call `enable()` and verify that
-`getInfo().methods` includes it and `receivedMintVerificationVersion` is `1`.
-The wallet must implement native invoice ownership and mint validation. A `null`
-result means the proof is still pending; validation or authorization errors reject.
-Stock RGB may retain a previously checked mint while its lock is pending. A new
-read is not proof of a newly checked reject list or current EVM connectivity.
-The dApp must compare all mint terms and independently check the current EVM
-chain, lock contract and exclusive block deadline before paying.
+`optionalMethods` when connecting. After approval, call `enable()` and check that
+`getInfo().methods` includes it and that the function exists on the provider.
+Polling an owned invoice needs no additional consent prompt. A `null` result
+means the proof is still pending. Validation and authorization errors reject.
+See [the mint integration guide](./INTEGRATION.md#checking-a-prepared-mint) for
+the checks a dApp must make before paying the deposit.
 
 An application or wallet upgrade does not add permissions to an existing session.
 If its approved namespace lacks `rgb_getReceivedMint`, request a new session and

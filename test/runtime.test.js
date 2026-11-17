@@ -1426,10 +1426,15 @@ const mintResult = {
 };
 
 describe("invoice-scoped received mint", () => {
-  it("round-trips exact commitment integers and explicit pending over JSON", async (t) => {
-    const f = await fixture(t);
+  it("polls an owned invoice without another approval and preserves exact commitment integers", async (t) => {
+    let approvals = 0;
+    const f = await fixture(t, { approveSession: async () => { approvals++; return true; } });
     let received = null;
-    f.backend.getReceivedMint = async (args) => { assert.deepEqual(args, { invoice: mintInvoice }); return received; };
+    f.backend.getReceivedMint = async (args) => {
+      f.context.assertAuthorized();
+      assert.deepEqual(args, { invoice: mintInvoice });
+      return received;
+    };
     const provider = await f.connect();
     await provider.enable();
     assert.ok((await provider.getInfo()).methods.includes("getReceivedMint"));
@@ -1437,6 +1442,8 @@ describe("invoice-scoped received mint", () => {
     received = { ...mintResult, internalProofPath: "/private/wallet/proof", diagnostic: "not wire data" };
     assert.deepEqual(await provider.getReceivedMint({ invoice: mintInvoice }), mintResult);
     assert.deepEqual(f.bus.calls.at(-1).params.request.params, [{ invoice: mintInvoice }]);
+    assert.equal(approvals, 1);
+    assert.equal(f.counts.enable, 1);
     assert.equal(f.counts.burn, 0);
     assert.equal(f.counts.receive, 0);
   });
