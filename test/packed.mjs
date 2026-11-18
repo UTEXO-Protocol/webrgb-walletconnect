@@ -21,6 +21,7 @@ try {
     "index.d.ts",
     "walletconnect-proof.js",
     "walletconnect-mint.js",
+    "walletconnect-burn.js",
     "INTEGRATION.md",
     "SPEC.md",
     "LICENSE",
@@ -49,7 +50,10 @@ try {
       assert.equal(typeof adapter[name], "function", name);
     }
     const core = await import("@utexo/webrgb");
-    assert.ok(core.RGB_ERROR_CODES.includes("NOT_ENABLED"));
+    assert.ok(core.RGB_ERROR_CODES.includes("NO_AVAILABLE_UTXOS"));
+    assert.equal(adapter.RGB_WALLETCONNECT_PROFILE, "webrgb:1");
+    for (const method of ["createUtxos", "getBtcBalance", "refresh", "getAssetMetadata"])
+      assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes(method));
     assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("signMessage"));
     assert.ok(adapter.RGB_WALLETCONNECT_METHODS.includes("getReceivedMint"));
     const receipt = {

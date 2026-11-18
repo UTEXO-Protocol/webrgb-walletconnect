@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking
+
+- Use the single `burnDestination` contract from WebRGB. Keep session profile
+  `webrgb:1` and existing grants; reject legacy/mixed burn payloads before
+  delegation.
+- Require `burnDestination.version: 1` in requests and results. Reject missing
+  or unsupported request versions before delegation; invalid result versions
+  retain transaction IDs for recovery and never trigger another burn.
+
+### Changed
+
+- Use published `@utexo/webrgb@0.1.7` for development and require `^0.1.7`
+  as the core peer dependency. `getReceivedMint` accepts any-asset invoices;
+  the dApp must compare the receipt's `assetId` with its selected asset.
+
+### Added
+
+- Validate burn requests and responses at both transport boundaries; preserve
+  usable transaction IDs in invalid-result errors for recovery without replay.
+- Support optional `createUtxos`, `getBtcBalance`, `refresh` and `getAssetMetadata`.
+  Resume only the three reads; deduplicate UTXO creation without retrying it.
+
+## [0.1.5]
+
 ### Fixed
 
 - Accept a checked `getReceivedMint` result without `txid` before lock payment;

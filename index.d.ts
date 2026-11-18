@@ -96,7 +96,7 @@ export interface WalletConnectWalletClient {
   };
 }
 
-/** Experimental UTEXO binding; both peers must implement this profile. */
+/** Session transport profile; method payload compatibility is checked separately. */
 export declare const RGB_WALLETCONNECT_PROFILE: "webrgb:1";
 export declare const RGB_WALLETCONNECT_METHODS: readonly RgbMethod[];
 export declare const CONSIGNMENT_CHUNK_BYTES: number;

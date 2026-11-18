@@ -7,7 +7,18 @@ requests, optional message signing, BFA burns and consented consignment sharing.
 Applications supply an initialized SignClient (dApp) or WalletKit (wallet).
 This package handles WebRGB RPC mapping, session permissions, expiry, events
 and consignment chunks. Applications own QR/deep-link UI, SDK initialization,
-storage, argument validation and user confirmations.
+storage, backend validation and user confirmations.
+
+## Contract compatibility
+
+Uses the published `@utexo/webrgb@0.1.7` contract.
+The `webrgb:1` session profile is unchanged. Burn now requires
+`burnDestination: { version: 1, chainId, address, dstEid }`; upgrade both peers
+for this contract. Existing session grants remain unchanged, and legacy burn
+payloads reject with `INVALID_PARAMS` before delegation.
+
+`createUtxos`, `getBtcBalance`, `refresh` and `getAssetMetadata` are optional.
+Request only needed methods and check the negotiated `getInfo().methods`.
 
 ## Install
 
@@ -64,14 +75,13 @@ The adapter does not depend on `rgb-sdk-rn` or any particular wallet backend.
 
 ## Protocol and core dependency
 
-[SPEC.md](./SPEC.md) defines the experimental UTEXO `rgb`
+[SPEC.md](./SPEC.md) defines the experimental WebRGB `rgb`
 namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
-[WebRGB](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md).
+[WebRGB](https://github.com/UTEXO-Protocol/webrgb).
 
-The application supplies `@utexo/webrgb@^0.1.5` as a peer dependency, so both
-packages share the contract with an optional received-mint `txid`. Development
-and validation use the published `@utexo/webrgb@0.1.5` package from npm.
+The application supplies `@utexo/webrgb@^0.1.7` as a peer dependency.
+The received-mint contract accepts any-asset invoices and keeps its optional `txid`.
 
 ### Received-mint reads and existing sessions
 
@@ -80,7 +90,11 @@ To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
 `getInfo().methods` includes it and that the function exists on the provider.
 Polling an owned invoice needs no additional consent prompt. A `null` result
 means the proof is still pending. A checked receipt may omit `txid` before
-payment; do not treat its absence as pending. Use an asset-specific invoice.
+payment; do not treat its absence as pending. Request an invoice with `assetId`
+when the wallet already knows the asset, and one without an asset for a first
+mint, when rgb-lib cannot create an invoice for the unknown asset
+(`ASSET_NOT_FOUND`). Either way, compare the receipt's `assetId` with the
+selected asset before paying.
 Validation and authorization errors reject.
 See [the mint integration guide](./INTEGRATION.md#checking-a-prepared-mint) for
 the checks a dApp must make before paying the deposit.
@@ -117,12 +131,13 @@ unlocked or connected to the relay.
 After a previously enabled wallet runtime restarts, read-only calls can recover
 one `NOT_ENABLED` reply with one enable handshake and one repeated read. The
 allowlist is `getInfo`, `listAssets`, `getAssetBalance`, `listTransfers`,
-`getTransferStatus`, `decodeRgbInvoice`, `getReceivedMint`, and `getConsignment`. Every handshake and
+`getTransferStatus`, `decodeRgbInvoice`, `getReceivedMint`, `getConsignment`,
+`getBtcBalance`, `refresh` and `getAssetMetadata`. Every handshake and
 request rechecks the current topic, expiry, profile, network, accounts, origin
 and method permissions. An account or wallet-origin change requires a new
 provider; late callbacks cannot enable a disposed/replaced provider.
 
-No address/invoice allocation, message signature, issuance, send, payment or burn
+No UTXO/address/invoice creation, message signature, issuance, send, payment or burn
 is automatically replayed, including after a timeout or lost response. Retain
 financial request identities and use the wallet's operation/proof recovery flow
 when its outcome is uncertain. This transport does not add durable burn recovery

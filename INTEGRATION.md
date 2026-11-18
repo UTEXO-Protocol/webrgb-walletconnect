@@ -45,8 +45,17 @@ a new asset; it is not used to receive an existing bridge asset.
 
 For a bridge that prepares a BFA mint before collecting the EVM deposit, add
 `"getReceivedMint"` to `optionalMethods` when connecting. After `enable()`,
-check the negotiated capability and the provider function. Create the invoice
-with the selected `assetId`; any-asset invoices reject with `INVALID_PARAMS`.
+check the negotiated capability and the provider function. Choose the invoice
+by what the wallet already knows:
+
+| Wallet state | Invoice to request | Why |
+| --- | --- | --- |
+| Asset known | `witnessReceive({ assetId })` | The invoice is bound to the selected asset from the start. |
+| Asset unknown (first mint) | `witnessReceive()` without an asset | rgb-lib cannot create an invoice for an unknown asset and rejects with `ASSET_NOT_FOUND`. |
+
+`ASSET_NOT_FOUND` from an asset-specific request is how an unknown asset shows
+up; it is not a precondition for an any-asset invoice. A wallet that cannot
+prove the asset of an any-asset invoice rejects it with `INVALID_PARAMS`.
 Read the receipt using the full invoice returned by the wallet:
 
 ```ts
@@ -57,7 +66,13 @@ if (!supports(info, "getReceivedMint") || !provider.getReceivedMint) {
   throw new Error("This wallet does not support received-mint verification");
 }
 const mint = await provider.getReceivedMint({ invoice });
+if (mint && mint.assetId !== assetId) {
+  throw new Error("The validated mint is for a different asset");
+}
 ```
+
+An any-asset invoice does not restrict the asset: comparing `assetId` with the
+selected asset is what binds the mint to it. Do not pay if they differ.
 
 `mint.txid` may be absent before the lock is paid. Do not wait for it before
 payment: compare the required `lockId` and the other validated terms below.
@@ -67,12 +82,9 @@ validation failures reject. Wallets must allow polling an owned invoice after
 `enable()` without a new consent prompt. If an existing WalletConnect session
 lacks the method, request a new session or get approval for a namespace update.
 
-If a dApp also uses an older injected browser provider with a recipient-only
-method, follow the [WebRGB legacy provider guidance](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/INTEGRATION.md#legacy-browser-providers).
-
-Stock BFA.8 can retain a checked receipt across a later reject-list change
-while its lock is pending. Compare the receipt's asset, net RGB amount, lock
-ID, destination chain, lock contract and deadline with the intended mint.
+Adapters must preserve invoice binding; a recipient-only fallback is invalid.
+Compare the receipt's asset, net RGB amount, lock ID, destination chain, lock
+contract and deadline with the intended mint.
 Independently check the current EVM chain, lock contract and exclusive block
 deadline before paying. Read and compare the receipt again after asynchronous
 payment approval, and discard it if the session, account, network, invoice or
@@ -80,17 +92,29 @@ bridge preparation changed. A validated receipt is not settlement.
 
 ### Burn and proof retrieval
 
-For burn, check capabilities before calling the optional methods:
+Upgrade both peers to the single-destination contract. The `webrgb:1` profile
+is unchanged; reconnect only if the session lacks the required method grants.
+Method names alone do not establish burn payload compatibility. Check
+capabilities before calling the optional methods:
 
 ```ts
-import { supports } from "@utexo/webrgb";
+import { supports, type RgbBurnAssetArgs } from "@utexo/webrgb";
 
 const info = await provider.getInfo();
 if (!supports(info, "burnAsset") || !supports(info, "getConsignment") ||
     !provider.burnAsset || !provider.getConsignment) {
   throw new Error("This wallet does not support BFA burn proofs");
 }
-const namespace = args.burnRecipient.chainId.split(":")[0];
+const args: RgbBurnAssetArgs = {
+  network: info.network, assetId, amount: "1000000",
+  burnDestination: {
+    version: 1,
+    chainId: "eip155:137",
+    address: "0x1111111111111111111111111111111111111111",
+    dstEid: 30109,
+  },
+};
+const namespace = args.burnDestination.chainId.split(":")[0];
 if (!(info.burnRecipientNamespaces ?? ["eip155"]).includes(namespace)) {
   throw new Error("Unsupported burn recipient namespace");
 }
@@ -104,6 +128,13 @@ proof. The receiving service handles Bitcoin confirmations, proof verification a
 any payout. Proof retrieval can be retried using the saved txid. If a
 burn times out, check wallet history before requesting another burn.
 
+### Optional wallet methods
+
+Request `createUtxos`, `getBtcBalance`, `refresh` or `getAssetMetadata` through
+`optionalMethods`, then check both `getInfo().methods` and the function before
+calling. `createUtxos` spends bitcoin and needs wallet confirmation; never retry
+it automatically. The other three methods use the existing read-resumption flow.
+
 ### Message signing
 
 To sign a message, include `signMessage` in `optionalMethods` and check support:
@@ -116,7 +147,7 @@ if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
 
 ## For wallet developers
 
-Implement the methods in [WebRGB specification](https://github.com/UTEXO-Protocol/webrgb/blob/15e25759b0f8b60c07963d4cdfa750745f8fe958/SPEC.md) in your wallet app. For example,
+Implement the methods in the [WebRGB contract](https://github.com/UTEXO-Protocol/webrgb) in your wallet app. For example,
 `blindReceive` validates the request, asks the user to confirm, creates an
 invoice through your wallet backend and returns `RgbBlindReceiveResult`.
 Your backend can be native, WASM or a node API; dApps do not call it directly.
@@ -154,6 +185,11 @@ sharing or message signing. After a per-call prompt, call
 and close its prompt on abort; `context.signal` covers session revocation.
 The connection prompt receives its own `signal`. `enable()` should reuse
 the connection approval.
+
+For burn, accept the single destination, validate the route before confirmation
+and return the same approved destination. Recheck authorization before signing.
+The adapter validates wire shape and result consistency; it does not validate
+RGB proofs or implement the wallet's payout policy.
 
 Advertise `getReceivedMint` only if the wallet implements invoice ownership and
 mint proof validation. The adapter checks request and result shape. The wallet
