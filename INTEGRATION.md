@@ -45,10 +45,17 @@ a new asset; it is not used to receive an existing bridge asset.
 
 For a bridge that prepares a BFA mint before collecting the EVM deposit, add
 `"getReceivedMint"` to `optionalMethods` when connecting. After `enable()`,
-check the negotiated capability and the provider function. Create the invoice
-with the selected `assetId`. If a wallet that has never held the asset rejects
-that with `ASSET_NOT_FOUND`, request an invoice without an asset. A wallet that
-cannot prove the asset of an any-asset invoice rejects it with `INVALID_PARAMS`.
+check the negotiated capability and the provider function. Choose the invoice
+by what the wallet already knows:
+
+| Wallet state | Invoice to request | Why |
+| --- | --- | --- |
+| Asset known | `witnessReceive({ assetId })` | The invoice is bound to the selected asset from the start. |
+| Asset unknown (first mint) | `witnessReceive()` without an asset | rgb-lib cannot create an invoice for an unknown asset and rejects with `ASSET_NOT_FOUND`. |
+
+`ASSET_NOT_FOUND` from an asset-specific request is how an unknown asset shows
+up; it is not a precondition for an any-asset invoice. A wallet that cannot
+prove the asset of an any-asset invoice rejects it with `INVALID_PARAMS`.
 Read the receipt using the full invoice returned by the wallet:
 
 ```ts

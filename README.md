@@ -90,9 +90,11 @@ To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
 `getInfo().methods` includes it and that the function exists on the provider.
 Polling an owned invoice needs no additional consent prompt. A `null` result
 means the proof is still pending. A checked receipt may omit `txid` before
-payment; do not treat its absence as pending. Prefer an asset-specific invoice;
-use an any-asset invoice only when the wallet rejects that with `ASSET_NOT_FOUND`,
-and compare the receipt's `assetId` with the selected asset before paying.
+payment; do not treat its absence as pending. Request an invoice with `assetId`
+when the wallet already knows the asset, and one without an asset for a first
+mint, when rgb-lib cannot create an invoice for the unknown asset
+(`ASSET_NOT_FOUND`). Either way, compare the receipt's `assetId` with the
+selected asset before paying.
 Validation and authorization errors reject.
 See [the mint integration guide](./INTEGRATION.md#checking-a-prepared-mint) for
 the checks a dApp must make before paying the deposit.
