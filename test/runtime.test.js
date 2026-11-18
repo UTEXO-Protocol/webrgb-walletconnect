@@ -1679,6 +1679,7 @@ describe("single-destination burn contract", () => {
     const malformed = [
       null, [], base, { ...base, burnRecipient: burnDestination },
       { ...burnArgs, burnRecipient: burnDestination }, { ...burnArgs, network: "signet" },
+      { ...burnArgs, destinationChainId: 1 }, { ...burnArgs, recipient: "0x1234" },
       { ...burnArgs, assetId: "" }, { ...burnArgs, amount: 1 }, { ...burnArgs, amount: "01" },
       { ...burnArgs, amount: "0" }, { ...burnArgs, amount: "18446744073709551616" },
       { ...burnArgs, feeRate: 0.5 }, { ...burnArgs, feeRate: 0 },
@@ -1758,6 +1759,17 @@ describe("single-destination burn contract", () => {
     assert.equal(f.bus.calls.filter((call) => call.params.request.method === "rgb_burnAsset").length, 1);
   });
 
+  it("executes a valid burn without the structuredClone global", async (t) => {
+    const f = await fixture(t), provider = await f.connect();
+    await provider.enable();
+    t.mock.method(globalThis, "structuredClone", () => {
+      throw new Error("structuredClone is unavailable in the wallet runtime");
+    });
+    const result = await provider.burnAsset(burnArgs);
+    assert.deepEqual(result.burnDestination, burnArgs.burnDestination);
+    assert.equal(f.counts.burn, 1);
+  });
+
   it("rejects malformed or mismatched results from either peer without retrying the burn", async (t) => {
     const f = await fixture(t), provider = await f.connect();
     await provider.enable();
@@ -1767,6 +1779,7 @@ describe("single-destination burn contract", () => {
       null, { ...valid, txid: "" }, { ...valid, assetId: "rgb:other" }, { ...valid, amount: "6" },
       { ...valid, transferId: undefined }, { ...valid, status: undefined }, { ...valid, minConfirmations: 0 },
       { ...valid, burnDestination: undefined }, { ...valid, burnRecipient: burnArgs.burnDestination },
+      { ...valid, destinationChainId: 1 }, { ...valid, recipient: "0x1234" },
       { ...valid, burnDestination: unversioned },
       ...[{ dstEid: 999 }, { chainId: "eip155:137" }, { address: "0x" + "77".repeat(20) },
         ...[undefined, null, "1", 0, 2, 1.5, true].map((version) => ({ version }))]

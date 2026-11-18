@@ -9,6 +9,11 @@ const text = (value) => typeof value === "string" && value.trim().length > 0;
 /** @param {any} value */
 const confirmations = (value) => Number.isInteger(value) && value >= 1 && value <= 255;
 
+/** @param {Record<string, unknown>} value */
+function hasLegacyDestination(value) {
+  return "burnRecipient" in value || "destinationChainId" in value || "recipient" in value;
+}
+
 /** @param {any} value @returns {import("@utexo/webrgb").RgbBurnDestination} */
 function destination(value) {
   if (!object(value) || value.version !== 1 || typeof value.chainId !== "string" ||
@@ -26,7 +31,7 @@ function destination(value) {
  * @returns {import("@utexo/webrgb").RgbBurnAssetArgs}
  */
 export function burnAssetArgs(value, network) {
-  if (!object(value) || "burnRecipient" in value || value.network !== network || !text(value.assetId) ||
+  if (!object(value) || hasLegacyDestination(value) || value.network !== network || !text(value.assetId) ||
       typeof value.amount !== "string" || !/^[1-9][0-9]{0,19}$/.test(value.amount) ||
       BigInt(value.amount) > 18446744073709551615n ||
       (value.feeRate !== undefined && (!Number.isSafeInteger(value.feeRate) || value.feeRate < 1)) ||
@@ -49,7 +54,7 @@ export function burnAssetArgs(value, network) {
  */
 export function burnAssetResult(value, args) {
   try {
-    if (!object(value) || "burnRecipient" in value || value.assetId !== args.assetId || value.amount !== args.amount ||
+    if (!object(value) || hasLegacyDestination(value) || value.assetId !== args.assetId || value.amount !== args.amount ||
         typeof value.txid !== "string" || !/^[0-9a-f]{64}$/i.test(value.txid) ||
         !(text(value.transferId) || (Number.isSafeInteger(value.transferId) && value.transferId >= 0)) ||
         !text(value.status) || !confirmations(value.minConfirmations) ||

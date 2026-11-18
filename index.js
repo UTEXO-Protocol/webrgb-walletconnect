@@ -903,7 +903,9 @@ export function createWalletConnectWallet(options) {
       );
     } else if (method === "burnAsset") {
       const checked = burnAssetArgs(args[0], network);
-      result = burnAssetResult(await provider.burnAsset(structuredClone(checked)), checked);
+      // Keep the validated destination separate from the backend's arguments.
+      const walletArgs = { ...checked, burnDestination: { ...checked.burnDestination } };
+      result = burnAssetResult(await provider.burnAsset(walletArgs), checked);
     } else if (method === "getReceivedMint") {
       const checked = receivedMintArgs(args[0]);
       result = receivedMintResult(await provider.getReceivedMint(checked), checked, network);
