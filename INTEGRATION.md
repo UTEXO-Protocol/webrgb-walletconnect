@@ -46,7 +46,9 @@ a new asset; it is not used to receive an existing bridge asset.
 For a bridge that prepares a BFA mint before collecting the EVM deposit, add
 `"getReceivedMint"` to `optionalMethods` when connecting. After `enable()`,
 check the negotiated capability and the provider function. Create the invoice
-with the selected `assetId`; any-asset invoices reject with `INVALID_PARAMS`.
+with the selected `assetId`. If a wallet that has never held the asset rejects
+that with `ASSET_NOT_FOUND`, request an invoice without an asset. A wallet that
+cannot prove the asset of an any-asset invoice rejects it with `INVALID_PARAMS`.
 Read the receipt using the full invoice returned by the wallet:
 
 ```ts
@@ -57,7 +59,13 @@ if (!supports(info, "getReceivedMint") || !provider.getReceivedMint) {
   throw new Error("This wallet does not support received-mint verification");
 }
 const mint = await provider.getReceivedMint({ invoice });
+if (mint && mint.assetId !== assetId) {
+  throw new Error("The validated mint is for a different asset");
+}
 ```
+
+An any-asset invoice does not restrict the asset: comparing `assetId` with the
+selected asset is what binds the mint to it. Do not pay if they differ.
 
 `mint.txid` may be absent before the lock is paid. Do not wait for it before
 payment: compare the required `lockId` and the other validated terms below.

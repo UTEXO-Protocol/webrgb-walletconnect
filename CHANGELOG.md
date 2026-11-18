@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Use published `@utexo/webrgb@0.1.6` for development and require `^0.1.6`
-  as the core peer dependency.
+- Use published `@utexo/webrgb@0.1.7` for development and require `^0.1.7`
+  as the core peer dependency. `getReceivedMint` accepts any-asset invoices;
+  the dApp must compare the receipt's `assetId` with its selected asset.
 
 ### Added
 

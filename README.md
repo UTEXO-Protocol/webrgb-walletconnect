@@ -11,7 +11,7 @@ storage, backend validation and user confirmations.
 
 ## Contract compatibility
 
-Uses the published `@utexo/webrgb@0.1.6` contract.
+Uses the published `@utexo/webrgb@0.1.7` contract.
 The `webrgb:1` session profile is unchanged. Burn now requires
 `burnDestination: { version: 1, chainId, address, dstEid }`; upgrade both peers
 for this contract. Existing session grants remain unchanged, and legacy burn
@@ -80,8 +80,8 @@ namespace and wire binding. Both peers must implement it; this is not an
 official WalletConnect RGB standard. The common method contract remains in
 [WebRGB](https://github.com/UTEXO-Protocol/webrgb).
 
-The application supplies `@utexo/webrgb@^0.1.6` as a peer dependency.
-The received-mint contract is unchanged, including its optional `txid`.
+The application supplies `@utexo/webrgb@^0.1.7` as a peer dependency.
+The received-mint contract accepts any-asset invoices and keeps its optional `txid`.
 
 ### Received-mint reads and existing sessions
 
@@ -90,7 +90,9 @@ To request `getReceivedMint({ invoice })`, include `"getReceivedMint"` in
 `getInfo().methods` includes it and that the function exists on the provider.
 Polling an owned invoice needs no additional consent prompt. A `null` result
 means the proof is still pending. A checked receipt may omit `txid` before
-payment; do not treat its absence as pending. Use an asset-specific invoice.
+payment; do not treat its absence as pending. Prefer an asset-specific invoice;
+use an any-asset invoice only when the wallet rejects that with `ASSET_NOT_FOUND`,
+and compare the receipt's `assetId` with the selected asset before paying.
 Validation and authorization errors reject.
 See [the mint integration guide](./INTEGRATION.md#checking-a-prepared-mint) for
 the checks a dApp must make before paying the deposit.

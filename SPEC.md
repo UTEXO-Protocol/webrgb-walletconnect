@@ -88,8 +88,11 @@ The other three methods join the bounded read-resumption allowlist.
 advertised in `getInfo().methods`. The dApp checks that the provider implements
 the method before calling it. The full, unchanged invoice is the only argument.
 Recipient-only queries and caller-supplied asset or settlement fields are invalid.
-The wallet MUST reject any-asset invoices with `INVALID_PARAMS`, as required
-by WebRGB; invoice decoding and proof-to-asset binding remain wallet checks.
+Any-asset invoices are allowed, as in WebRGB 0.1.7: the wallet takes `assetId`
+from the validated consignment or rejects the invoice with `INVALID_PARAMS`.
+Invoice decoding and proof-to-asset binding remain wallet checks; the transport
+does not compare `assetId` with the invoice. The dApp compares it with its
+selected asset before paying.
 
 After `enable()`, polling an invoice owned by the active wallet account MUST
 require no additional consent prompt. The wallet must still verify invoice
