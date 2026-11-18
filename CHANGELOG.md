@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-18
+
 ### Breaking
 
 - Use the single `burnDestination` contract from WebRGB. Keep session profile

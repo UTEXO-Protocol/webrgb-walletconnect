@@ -1,6 +1,6 @@
 {
   "name": "@utexo/webrgb-walletconnect",
-  "version": "1.0.0-next.0",
+  "version": "0.1.7",
   "description": "WalletConnect transport for WebRGB dApps and wallets, using SignClient and WalletKit.",
   "license": "MIT",
   "type": "module",
