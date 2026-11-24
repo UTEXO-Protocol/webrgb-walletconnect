@@ -45,7 +45,8 @@ code in `error.data` as a string; the dApp restores it as `error.code`.
 
 `signMessage(message)` maps to `rgb_signMessage` with params `[message]` and
 result `{ signature }`. The adapter forwards both unchanged; the wallet
-obtains user approval for each signing request.
+obtains user approval for each signing request. An empty or malformed message
+rejects with `INVALID_PARAMS` before reaching the wallet.
 
 `witnessReceive(args?)` maps to `rgb_witnessReceive` with params `[args]`,
 or `[]` when omitted. Arguments and the invoice result pass through unchanged.
@@ -73,22 +74,25 @@ result nor a timeout permits automatic resubmission.
 | `getBtcBalance` | `[]` | `RgbBtcBalance` |
 | `refresh` | `[]` or `[assetId]` | `{ refreshed: boolean }` |
 | `getAssetMetadata` | `[assetId]` | `RgbAssetMetadata` |
+| `cancelReceive` | `[recipientId]` | `{ cancelled: boolean }` |
+| `signPsbt` | `[psbt]` or `[psbt, { finalize? }]` | `RgbSignPsbtResult` |
 
 Each uses the `rgb_` RPC prefix and requires a negotiated grant plus a wallet
 implementation. Values and WebRGB errors, including `NO_AVAILABLE_UTXOS`, pass
 through unchanged. Wallets preserve exact string-valued `issuedSupply` and
-propagate per-transfer refresh failures. `createUtxos` requires confirmation
-and shares the burn policy: no automatic replay and deduplication by RPC ID.
-The other three methods join the bounded read-resumption allowlist.
+propagate per-transfer refresh failures. `createUtxos`, `cancelReceive` and
+`signPsbt` require confirmation and share the burn policy: no automatic replay
+and deduplication by RPC ID. `signPsbt` passes `UNSAFE_PSBT` through unchanged.
+`getBtcBalance`, `refresh` and `getAssetMetadata` join the bounded
+read-resumption allowlist.
 
 ### Received mint
 
 `getReceivedMint({ invoice })` maps to `rgb_getReceivedMint` with params
 `[{ invoice }]`. This optional method must be in the approved namespace and
-advertised in `getInfo().methods`. The dApp checks that the provider implements
-the method before calling it. The full, unchanged invoice is the only argument.
+advertised in `getInfo().methods`. The full, unchanged invoice is the only argument.
 Recipient-only queries and caller-supplied asset or settlement fields are invalid.
-Any-asset invoices are allowed, as in WebRGB 0.1.7: the wallet takes `assetId`
+Any-asset invoices are allowed, as in WebRGB 0.2.0: the wallet takes `assetId`
 from the validated consignment or rejects the invoice with `INVALID_PARAMS`.
 Invoice decoding and proof-to-asset binding remain wallet checks; the transport
 does not compare `assetId` with the invoice. The dApp compares it with its

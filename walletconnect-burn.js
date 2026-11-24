@@ -34,7 +34,7 @@ export function burnAssetArgs(value, network) {
   if (!object(value) || hasLegacyDestination(value) || value.network !== network || !text(value.assetId) ||
       typeof value.amount !== "string" || !/^[1-9][0-9]{0,19}$/.test(value.amount) ||
       BigInt(value.amount) > 18446744073709551615n ||
-      (value.feeRate !== undefined && (!Number.isSafeInteger(value.feeRate) || value.feeRate < 1)) ||
+      (value.feeRate !== undefined && (typeof value.feeRate !== "number" || !Number.isFinite(value.feeRate) || value.feeRate <= 0)) ||
       (value.minConfirmations !== undefined && !confirmations(value.minConfirmations))) {
     throw fail("Invalid burnAsset arguments for this RGB network", "INVALID_PARAMS");
   }

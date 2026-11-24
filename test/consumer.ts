@@ -107,15 +107,23 @@ async function updatedContract(provider: WalletConnectProvider) {
     await provider.burnAsset({ network: "regtest", assetId: "rgb:asset", amount: "1", burnRecipient: args.burnDestination });
   }
   const info = await provider.getInfo();
-  if (supports(info, "createUtxos") && provider.createUtxos) (await provider.createUtxos({ num: 2 })).created.toFixed();
-  if (supports(info, "getBtcBalance") && provider.getBtcBalance) (await provider.getBtcBalance()).vanilla.spendable.toFixed();
-  if (supports(info, "refresh") && provider.refresh) {
+  if (supports(info, "createUtxos")) (await provider.createUtxos({ num: 2 })).created.toFixed();
+  if (supports(info, "getBtcBalance")) (await provider.getBtcBalance()).vanilla.spendable.toFixed();
+  if (supports(info, "refresh")) {
     const changed: boolean = (await provider.refresh()).refreshed;
     void changed;
   }
-  if (supports(info, "getAssetMetadata") && provider.getAssetMetadata) {
+  if (supports(info, "getAssetMetadata")) {
     const supply: string = (await provider.getAssetMetadata(args.assetId)).issuedSupply;
     void supply;
+  }
+  if (supports(info, "cancelReceive")) {
+    const cancelled: boolean = (await provider.cancelReceive("utxob:abc")).cancelled;
+    void cancelled;
+  }
+  if (supports(info, "signPsbt")) {
+    const signed: number = (await provider.signPsbt("cHNidP8=", { finalize: true })).signedInputs;
+    void signed;
   }
 }
 void updatedContract;
