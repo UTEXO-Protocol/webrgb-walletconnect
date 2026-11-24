@@ -45,7 +45,7 @@ a new asset; it is not used to receive an existing bridge asset.
 
 For a bridge that prepares a BFA mint before collecting the EVM deposit, add
 `"getReceivedMint"` to `optionalMethods` when connecting. After `enable()`,
-check the negotiated capability and the provider function. Choose the invoice
+check the negotiated capability in `getInfo().methods`. Choose the invoice
 by what the wallet already knows:
 
 | Wallet state | Invoice to request | Why |
@@ -130,17 +130,21 @@ burn times out, check wallet history before requesting another burn.
 
 ### Optional wallet methods
 
-Request `createUtxos`, `getBtcBalance`, `refresh` or `getAssetMetadata` through
-`optionalMethods`, then check both `getInfo().methods` and the function before
-calling. `createUtxos` spends bitcoin and needs wallet confirmation; never retry
-it automatically. The other three methods use the existing read-resumption flow.
+Request `createUtxos`, `cancelReceive`, `getBtcBalance`, `refresh`,
+`getAssetMetadata` or `signPsbt` through `optionalMethods`, then check
+`getInfo().methods` before calling. Every method exists on the provider, so
+function presence is not a support check. `createUtxos`, `cancelReceive` and
+`signPsbt` need wallet confirmation; they are never resumed or retried
+automatically, and a repeated RPC ID does not run them again. `signPsbt`
+passes `UNSAFE_PSBT` through unchanged. The other three methods use the
+existing read-resumption flow.
 
 ### Message signing
 
 To sign a message, include `signMessage` in `optionalMethods` and check support:
 
 ```ts
-if (supports(await provider.getInfo(), "signMessage") && provider.signMessage) {
+if (supports(await provider.getInfo(), "signMessage")) {
   const { signature } = await provider.signMessage(message);
 }
 ```

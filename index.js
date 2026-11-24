@@ -27,9 +27,11 @@ export const RGB_WALLETCONNECT_METHODS = Object.freeze([
   "blindReceive",
   "witnessReceive",
   "createUtxos",
+  "cancelReceive",
   "getBtcBalance",
   "refresh",
   "getAssetMetadata",
+  "signPsbt",
   "issueAsset",
   "listAssets",
   "getAssetBalance",
@@ -866,14 +868,27 @@ export function createWalletConnectWallet(options) {
     const zero = ["enable", "getInfo", "getAddress", "listAssets", "getBtcBalance"];
     const optionalArgs = ["blindReceive", "witnessReceive", "listTransfers", "createUtxos", "refresh"];
     const min = zero.includes(method) || optionalArgs.includes(method) ? 0 : 1;
-    const max = zero.includes(method) ? 0 : method === "getTransferStatus" ? 2 : 1;
+    const max = zero.includes(method) ? 0 : method === "getTransferStatus" || method === "signPsbt" ? 2 : 1;
     if (args.length < min || args.length > max)
       throw fail("Invalid argument count", "INVALID_PARAMS");
     if (
       method === "signMessage" &&
-      (typeof args[0] !== "string" || /[\uD800-\uDFFF]/u.test(args[0]))
+      (typeof args[0] !== "string" || args[0].length === 0 || /[\uD800-\uDFFF]/u.test(args[0]))
     )
-      throw fail("message must be a well-formed Unicode string", "INVALID_PARAMS");
+      throw fail("message must be a non-empty, well-formed Unicode string", "INVALID_PARAMS");
+    if (method === "cancelReceive" && (typeof args[0] !== "string" || args[0].length === 0))
+      throw fail("recipientId must be a non-empty string", "INVALID_PARAMS");
+    if (
+      method === "signPsbt" &&
+      (typeof args[0] !== "string" ||
+        args[0].length === 0 ||
+        (args[1] !== undefined &&
+          (args[1] === null ||
+            typeof args[1] !== "object" ||
+            Array.isArray(args[1]) ||
+            (args[1].finalize !== undefined && typeof args[1].finalize !== "boolean"))))
+    )
+      throw fail("signPsbt takes a base64 PSBT and optional { finalize }", "INVALID_PARAMS");
     const record = await recordFor(topic);
     const expiry = Math.min(session.expiry, request.expiryTimestamp ?? session.expiry);
     const pending = activeRequests.get(`${topic}:${event.id}`);
@@ -1046,6 +1061,8 @@ export function createWalletConnectWallet(options) {
       "rgb_witnessReceive",
       "rgb_burnAsset",
       "rgb_createUtxos",
+      "rgb_cancelReceive",
+      "rgb_signPsbt",
       "rgb_sendAsset",
       "rgb_issueAsset",
       "rgb_makeLnInvoice",

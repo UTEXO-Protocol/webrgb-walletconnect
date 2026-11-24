@@ -278,7 +278,7 @@ describe("message signing", () => {
     await provider.enable();
     assert.deepEqual(seen, []);
     assert.ok((await provider.getInfo()).methods.includes("signMessage"));
-    const messages = ["  Test message e\u0301\r\n", ""];
+    const messages = ["  Test message e\u0301\r\n", " "];
     for (const message of messages) {
       assert.deepEqual(await provider.signMessage(message), result);
       assert.equal(f.bus.calls.at(-1).params.request.method, "rgb_signMessage");
@@ -305,7 +305,7 @@ describe("message signing", () => {
     };
     const provider = await f.connect();
     await provider.enable();
-    for (const message of [undefined, null, 1, "\ud800"]) {
+    for (const message of [undefined, null, 1, "", "\ud800"]) {
       await assert.rejects(provider.signMessage(message), code("INVALID_PARAMS"));
     }
     assert.equal(prompts, 0);
@@ -366,6 +366,9 @@ describe("WalletConnect transport", () => {
     assert.equal(burn.txid, txid);
     assert.equal(f.counts.burn, 1);
     assert.deepEqual(f.bus.calls.at(-1).params.request.params, [burnArgs]);
+    const fractional = { ...burnArgs, feeRate: 1.5 };
+    assert.equal((await provider.burnAsset(fractional)).txid, txid);
+    assert.deepEqual(f.bus.calls.at(-1).params.request.params, [fractional]);
     const proof = await provider.getConsignment({ assetId, txid });
     assert.deepEqual(proof, f.proof);
     assert.equal(f.counts.proof, 1);
@@ -1682,7 +1685,8 @@ describe("single-destination burn contract", () => {
       { ...burnArgs, destinationChainId: 1 }, { ...burnArgs, recipient: "0x1234" },
       { ...burnArgs, assetId: "" }, { ...burnArgs, amount: 1 }, { ...burnArgs, amount: "01" },
       { ...burnArgs, amount: "0" }, { ...burnArgs, amount: "18446744073709551616" },
-      { ...burnArgs, feeRate: 0.5 }, { ...burnArgs, feeRate: 0 },
+      { ...burnArgs, feeRate: 0 }, { ...burnArgs, feeRate: -0.5 }, { ...burnArgs, feeRate: Infinity },
+      { ...burnArgs, feeRate: NaN }, { ...burnArgs, feeRate: "2" },
       { ...burnArgs, minConfirmations: 0 }, { ...burnArgs, minConfirmations: 256 },
       ...[
         { dstEid: undefined }, { dstEid: -1 }, { dstEid: 2 ** 32 }, { dstEid: 1.5 },
@@ -1828,8 +1832,6 @@ describe("optional wallet maintenance methods", () => {
       assert.ok(RGB_WALLETCONNECT_METHODS.includes(method));
       assert.ok((await provider.getInfo()).methods.includes(method));
     }
-    assert.equal(RGB_WALLETCONNECT_METHODS.includes("cancelReceive"), false);
-    assert.equal(RGB_WALLETCONNECT_METHODS.includes("signPsbt"), false);
     assert.deepEqual(await provider.getBtcBalance(), f.balance);
     assert.deepEqual(await provider.getAssetMetadata(assetId), f.metadata);
     assert.deepEqual(await provider.refresh(), { refreshed: false });
@@ -1911,5 +1913,71 @@ describe("optional wallet maintenance methods", () => {
     assert.equal(replies.length, 2);
     assert.deepEqual(replies[0].result, result);
     assert.deepEqual(replies[1].result, result);
+  });
+});
+
+describe("cancelReceive and signPsbt", () => {
+  const added = ["cancelReceive", "signPsbt"];
+  const methods = ["enable", "getInfo", ...added];
+  const psbt = "cHNidP8BAAoCAAAAAAAAAAAAAAA=";
+  async function setup(t, connectOptions = {}) {
+    const f = await fixture(t, { methods }, connectOptions);
+    const seen = [];
+    f.backend.cancelReceive = async (...args) => { seen.push(["cancelReceive", args]); return { cancelled: true }; };
+    f.backend.signPsbt = async (...args) => { seen.push(["signPsbt", args]); return { psbt, signedInputs: 1 }; };
+    const provider = await f.connect();
+    await provider.enable();
+    return { ...f, provider, seen };
+  }
+
+  it("exposes every RgbProvider method on the dApp provider", async (t) => {
+    const { provider } = await setup(t);
+    for (const method of added) assert.ok(RGB_WALLETCONNECT_METHODS.includes(method));
+    for (const method of ["enable", "getInfo", "getAddress", "signMessage", "blindReceive",
+      "witnessReceive", "createUtxos", "cancelReceive", "getBtcBalance", "refresh",
+      "getAssetMetadata", "signPsbt", "issueAsset", "listAssets", "getAssetBalance", "sendAsset",
+      "burnAsset", "getConsignment", "getReceivedMint", "listTransfers", "getTransferStatus",
+      "decodeRgbInvoice", "makeLnInvoice", "payLnInvoice", "on", "off"]) {
+      assert.equal(typeof provider[method], "function", method);
+    }
+  });
+
+  it("passes arguments and results through unchanged", async (t) => {
+    const f = await setup(t), { provider } = f;
+    for (const method of added) assert.ok((await provider.getInfo()).methods.includes(method));
+    assert.deepEqual(await provider.cancelReceive("utxob:abc"), { cancelled: true });
+    assert.deepEqual(await provider.signPsbt(psbt), { psbt, signedInputs: 1 });
+    assert.deepEqual(await provider.signPsbt(psbt, { finalize: true }), { psbt, signedInputs: 1 });
+    assert.deepEqual(f.seen, [
+      ["cancelReceive", ["utxob:abc"]], ["signPsbt", [psbt]], ["signPsbt", [psbt, { finalize: true }]],
+    ]);
+  });
+
+  it("rejects bad arguments and ungranted calls before the wallet runs", async (t) => {
+    const f = await setup(t), { provider } = f;
+    for (const id of [undefined, "", 1]) await assert.rejects(provider.cancelReceive(id), code("INVALID_PARAMS"));
+    for (const [value, opts] of [[undefined], [""], [1], [psbt, null], [psbt, []], [psbt, { finalize: "yes" }]]) {
+      await assert.rejects(provider.signPsbt(value, opts), code("INVALID_PARAMS"));
+    }
+    assert.equal(f.seen.length, 0);
+    const ungranted = await setup(t, { optionalMethods: [] });
+    for (const [method, args] of [["cancelReceive", ["utxob:abc"]], ["signPsbt", [psbt]]]) {
+      assert.equal((await ungranted.provider.getInfo()).methods.includes(method), false);
+      await assert.rejects(ungranted.provider[method](...args), code("METHOD_NOT_SUPPORTED"));
+    }
+    assert.equal(ungranted.seen.length, 0);
+  });
+
+  it("passes UNSAFE_PSBT through and never resumes either method", async (t) => {
+    const f = await setup(t), { provider } = f;
+    f.backend.signPsbt = async () => { throw Object.assign(new Error("Colored input"), { code: "UNSAFE_PSBT" }); };
+    await assert.rejects(provider.signPsbt(psbt), code("UNSAFE_PSBT"));
+    for (const [method, args] of [["cancelReceive", ["utxob:abc"]], ["signPsbt", [psbt]]]) {
+      const g = await setup(t);
+      g.backend[method] = async () => { throw Object.assign(new Error("lost"), { code: "NOT_ENABLED" }); };
+      const before = g.bus.calls.length;
+      await assert.rejects(g.provider[method](...args), code("NOT_ENABLED"));
+      assert.deepEqual(g.bus.calls.slice(before).map((call) => call.params.request.method), [`rgb_${method}`]);
+    }
   });
 });

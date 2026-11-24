@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Relay `cancelReceive(recipientId)` and `signPsbt(psbt, opts?)` from
+  `@utexo/webrgb`. Both require wallet confirmation, are never resumed or
+  retried automatically, and a repeated RPC ID does not run them again.
+  `UNSAFE_PSBT` passes through unchanged.
+
+### Changed
+
+- The dApp provider now defines every `RgbProvider` method, as the new WebRGB
+  contract requires. Check `getInfo().methods` for support, not the function.
+- `signMessage("")` rejects with `INVALID_PARAMS`, matching `@utexo/webrgb`.
+- `burnAsset` accepts a fractional `feeRate`, as `@utexo/webrgb` 0.2.0 does.
+  Zero, negative and non-finite rates still reject with `INVALID_PARAMS`.
+- Requires `@utexo/webrgb` 0.2.0 (peer dependency `^0.2.0`): the `UNSAFE_PSBT` code and the required
+  `cancelReceive`/`signPsbt` types come from it.
+
 ## [0.1.7] - 2026-11-18
 
 ### Breaking
